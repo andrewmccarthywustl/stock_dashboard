@@ -77,7 +77,7 @@ const PortfolioTreemap = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const response = await axios.get("/api/get-portfolio");
+        const response = await axios.get("/api/portfolio/get-portfolio");
         console.log("Portfolio data fetched:", response.data);
         setPortfolioData(response.data);
       } catch (error) {
