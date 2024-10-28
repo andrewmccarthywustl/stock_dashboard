@@ -1,15 +1,16 @@
-// src/components/PortfolioTreemap/PortfolioTreemap.jsx
+// PortfolioTreemap.jsx
 import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
 import axios from "axios";
+import StockDetailsPopup from "./StockDetailsPopup";
 
-const PortfolioTreemap = () => {
+const PortfolioTreemap = ({ positionType = "long" }) => {
   const svgRef = useRef(null);
   const [portfolioData, setPortfolioData] = useState({ stocks: [] });
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
-  const [error, setError] = useState(null);
+  const [hoveredId, setHoveredId] = useState(null);
+  const [selectedStock, setSelectedStock] = useState(null);
 
-  // Sector abbreviations
+  // Abbreviations for sectors and stock names
   const sectorAbbreviations = {
     Technology: "TECH",
     Healthcare: "HLTH",
@@ -25,291 +26,275 @@ const PortfolioTreemap = () => {
     Unknown: "UNK",
   };
 
+  // Abbreviate stock name if needed
+  const getAbbreviatedName = (name, width) => {
+    if (width < 50 && name.length > 4) {
+      return name.substring(0, 4);
+    }
+    return name;
+  };
+
   // Percentage-based color scale
-  const getPercentageColor = (percentage) => {
+  const getPercentageColor = (percentage, isShort = false) => {
     const p = Number(percentage);
 
-    if (p <= -10) return "#632726"; // Darker red
-    if (p <= -5) return "#892E2D"; // Dark red
-    if (p <= -2) return "#AA3937"; // Medium red
-    if (p < 0) return "#C44"; // Light red
-    if (p === 0) return "#1F2937"; // Neutral
-    if (p <= 2) return "#255D3A"; // Light green
-    if (p <= 5) return "#1E4D30"; // Medium green
-    if (p <= 10) return "#194227"; // Dark green
-    return "#143C22"; // Darker green
+    if (isShort) {
+      if (p >= 10) return "#4c1d95";
+      if (p >= 5) return "#5b21b6";
+      if (p >= 2) return "#6d28d9";
+      if (p > 0) return "#7c3aed";
+      if (p === 0) return "#1F2937";
+      if (p >= -2) return "#60a5fa";
+      if (p >= -5) return "#3b82f6";
+      if (p >= -10) return "#2563eb";
+      return "#1e3a8a";
+    } else {
+      if (p <= -10) return "#632726";
+      if (p <= -5) return "#892E2D";
+      if (p <= -2) return "#AA3937";
+      if (p < 0) return "#C44";
+      if (p === 0) return "#1F2937";
+      if (p <= 2) return "#255D3A";
+      if (p <= 5) return "#1E4D30";
+      if (p <= 10) return "#194227";
+      return "#143C22";
+    }
   };
-
-  // Sector colors
-  const sectorColors = {
-    Technology: "#2A3441",
-    Healthcare: "#2D3440",
-    Industrials: "#2C3440",
-    "Consumer Discretionary": "#2E3441",
-    "Consumer Staples": "#2D3339",
-    Energy: "#2C3338",
-    Materials: "#2B3338",
-    Finance: "#2A3337",
-    "Real Estate": "#293336",
-    Utilities: "#283235",
-    "Communication Services": "#273134",
-    Unknown: "#263033",
-  };
-
-  // Dimension handling
-  useEffect(() => {
-    const updateDimensions = () => {
-      if (svgRef.current) {
-        const container = svgRef.current.parentElement;
-        const width = container.clientWidth;
-        const height = container.clientHeight;
-        console.log("Setting dimensions:", { width, height });
-        setDimensions({ width, height });
-      }
-    };
-
-    updateDimensions();
-    window.addEventListener("resize", updateDimensions);
-    return () => window.removeEventListener("resize", updateDimensions);
-  }, []);
 
   // Data fetching
   useEffect(() => {
     const fetchData = async () => {
       try {
         const response = await axios.get("/api/portfolio/get-portfolio");
-        console.log("Portfolio data fetched:", response.data);
         setPortfolioData(response.data);
       } catch (error) {
         console.error("Error fetching portfolio:", error);
-        setError(error.message);
       }
     };
 
     fetchData();
   }, []);
 
-  // Data transformation
-  const transformDataForD3 = (stocks) => {
-    const sectors = {};
-
-    stocks.forEach((stock) => {
-      const sector = stock.sector || "Unknown";
-      if (!sectors[sector]) {
-        sectors[sector] = [];
-      }
-
-      sectors[sector].push({
-        name: stock.symbol.toUpperCase(),
-        value: stock.quantity * stock.current_price,
-        percentChange: stock.percent_change,
-        industry: stock.industry || "Unknown",
-      });
-    });
-
-    const totalValue = Object.values(sectors)
-      .flat()
-      .reduce((sum, stock) => sum + stock.value, 0);
-
-    return {
-      name: "Portfolio",
-      children: Object.entries(sectors)
-        .filter(([_, stocks]) => stocks.length > 0)
-        .map(([sector, stocks]) => {
-          const sectorTotal = stocks.reduce(
-            (sum, stock) => sum + stock.value,
-            0
-          );
-          const sectorPercentage = ((sectorTotal / totalValue) * 100).toFixed(
-            1
-          );
-          return {
-            name: sector,
-            children: stocks,
-            total: sectorTotal,
-            percentage: sectorPercentage,
-          };
-        })
-        .sort((a, b) => b.total - a.total),
-    };
+  // Handle stock selection
+  const handleStockClick = (stock) => {
+    const fullStockData = portfolioData.stocks.find(
+      (s) => s.symbol === stock.name && s.position_type === positionType
+    );
+    setSelectedStock(fullStockData);
   };
 
-  // Treemap creation
   useEffect(() => {
-    if (
-      !portfolioData.stocks?.length ||
-      !dimensions.width ||
-      !dimensions.height
-    ) {
-      console.log("Missing required data:", {
-        hasStocks: Boolean(portfolioData.stocks?.length),
-        width: dimensions.width,
-        height: dimensions.height,
-      });
+    if (!portfolioData.stocks?.length) return;
+
+    // Filter stocks based on position type
+    const filteredStocks = portfolioData.stocks.filter(
+      (stock) => stock.position_type === positionType
+    );
+
+    // Clear previous SVG
+    const svg = d3.select(svgRef.current);
+    svg.selectAll("*").remove();
+
+    // If no positions exist, display the message
+    if (filteredStocks.length === 0) {
+      const container = svgRef.current.parentElement;
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      svg
+        .attr("width", width)
+        .attr("height", height)
+        .style("background", "#121212");
+
+      svg
+        .append("text")
+        .attr("x", width / 2)
+        .attr("y", height / 2)
+        .attr("text-anchor", "middle")
+        .attr("dominant-baseline", "middle")
+        .style("fill", "#6B7280") // Using Tailwind's gray-500 color
+        .style("font-size", "16px")
+        .style("font-family", "Inter, sans-serif")
+        .text(`No ${positionType} positions in portfolio`);
+
       return;
     }
 
-    console.log("Creating treemap with dimensions:", dimensions);
+    // Get container dimensions
+    const container = svgRef.current.parentElement;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    const margin = { top: 20, right: 20, bottom: 20, left: 20 };
 
-    const createTreemap = () => {
-      const svg = d3.select(svgRef.current);
-      svg.selectAll("*").remove();
+    // Set SVG dimensions
+    svg
+      .attr("width", width)
+      .attr("height", height)
+      .style("background", "#121212")
+      .style("font-family", "Inter, sans-serif");
 
-      svg
-        .attr("width", dimensions.width)
-        .attr("height", dimensions.height)
-        .style("font-family", "Inter, sans-serif")
-        .style("background-color", "#121212");
+    // Create group for margins
+    const g = svg
+      .append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
 
-      const data = transformDataForD3(portfolioData.stocks);
-
-      const root = d3
-        .hierarchy(data)
-        .sum((d) => d.value)
-        .sort((a, b) => b.value - a.value);
-
-      const treemapLayout = d3
-        .treemap()
-        .size([dimensions.width, dimensions.height])
-        .paddingTop(24)
-        .paddingInner(1)
-        .round(true);
-
-      treemapLayout(root);
-
-      // Create sectors
-      const sectors = svg
-        .selectAll("g.sector")
-        .data(root.children)
-        .join("g")
-        .attr("class", "sector");
-
-      // Sector backgrounds
-      sectors
-        .append("rect")
-        .attr("x", (d) => d.x0)
-        .attr("y", (d) => d.y0)
-        .attr("width", (d) => d.x1 - d.x0)
-        .attr("height", (d) => d.y1 - d.y0)
-        .attr("fill", (d) => sectorColors[d.data.name])
-        .attr("stroke", "#2A2A2A")
-        .attr("stroke-width", 1);
-
-      // Sector headers
-      sectors
-        .append("rect")
-        .attr("x", (d) => d.x0)
-        .attr("y", (d) => d.y0)
-        .attr("width", (d) => d.x1 - d.x0)
-        .attr("height", 24)
-        .attr("fill", (d) => sectorColors[d.data.name])
-        .attr("opacity", 0.8);
-
-      // Sector titles with truncation
-      sectors.each(function (d) {
-        const sectorGroup = d3.select(this);
-        const width = d.x1 - d.x0 - 16; // Available width minus padding
-        const fullText = `${d.data.name.toUpperCase()} ${d.data.percentage}%`;
-        const abbreviated = `${sectorAbbreviations[d.data.name]} ${
-          d.data.percentage
-        }%`;
-
-        // Create a temporary text element to measure text width
-        const tempText = svg
-          .append("text")
-          .attr("font-size", "11px")
-          .text(fullText);
-
-        const textWidth = tempText.node().getComputedTextLength();
-        tempText.remove();
-
-        // Add the actual text element
-        sectorGroup
-          .append("text")
-          .attr("x", d.x0 + 8)
-          .attr("y", d.y0 + 16)
-          .attr("fill", "#FFFFFF")
-          .attr("font-size", "11px")
-          .attr("font-weight", "500")
-          .text(textWidth > width ? abbreviated : fullText);
-      });
-
-      // Create stock tiles
-      const stocks = sectors
-        .selectAll("g.stock")
-        .data((d) => d.leaves())
-        .join("g")
-        .attr("class", "stock");
-
-      // Stock backgrounds
-      stocks
-        .append("rect")
-        .attr("x", (d) => d.x0)
-        .attr("y", (d) => d.y0)
-        .attr("width", (d) => d.x1 - d.x0)
-        .attr("height", (d) => d.y1 - d.y0)
-        .attr("fill", (d) => getPercentageColor(d.data.percentChange))
-        .attr("stroke", "#1A1A1A")
-        .attr("stroke-width", 0.5);
-
-      // Stock symbol
-      stocks
-        .append("text")
-        .attr("x", (d) => (d.x0 + d.x1) / 2)
-        .attr("y", (d) => (d.y0 + d.y1) / 2 - 8)
-        .attr("text-anchor", "middle")
-        .text((d) => d.data.name)
-        .attr("fill", "#FFFFFF")
-        .attr("font-weight", "bold")
-        .attr("font-size", "12px");
-
-      // Percentage change
-      stocks
-        .append("text")
-        .attr("x", (d) => (d.x0 + d.x1) / 2)
-        .attr("y", (d) => (d.y0 + d.y1) / 2 + 8)
-        .attr("text-anchor", "middle")
-        .text(
-          (d) =>
-            `${
-              d.data.percentChange >= 0 ? "+" : ""
-            }${d.data.percentChange.toFixed(2)}%`
-        )
-        .attr("fill", "#FFFFFF")
-        .attr("font-size", "11px");
-
-      // Industry label
-      stocks
-        .append("text")
-        .attr("x", (d) => (d.x0 + d.x1) / 2)
-        .attr("y", (d) => (d.y0 + d.y1) / 2 + 22)
-        .attr("text-anchor", "middle")
-        .text((d) => d.data.industry)
-        .attr("fill", "#999999")
-        .attr("font-size", "9px");
+    // Transform data to hierarchy structure
+    const data = {
+      name: "Portfolio",
+      children: Array.from(
+        d3.group(filteredStocks, (d) => d.sector || "Unknown"),
+        ([key, values]) => ({
+          name: key,
+          children: values.map((stock) => ({
+            name: stock.symbol,
+            value: stock.position_value,
+            percentChange: stock.percent_change,
+            beta: stock.beta || 0,
+            id: `${stock.symbol}-${stock.position_type}`,
+          })),
+        })
+      ),
     };
 
-    createTreemap();
-  }, [portfolioData, dimensions]);
+    // Create hierarchy and treemap layout
+    const root = d3
+      .hierarchy(data)
+      .sum((d) => d.value)
+      .sort((a, b) => b.value - a.value);
 
-  if (error) {
-    return (
-      <div className="w-full h-full flex items-center justify-center bg-[#121212] text-white">
-        <div className="text-center">
-          <h3 className="text-xl mb-2">Error Loading Treemap</h3>
-          <p className="text-red-400">{error}</p>
-        </div>
-      </div>
-    );
-  }
+    const treemap = d3
+      .treemap()
+      .size([
+        width - margin.left - margin.right,
+        height - margin.top - margin.bottom,
+      ])
+      .paddingTop(20)
+      .paddingInner(1);
+
+    treemap(root);
+
+    // Create groups for each leaf
+    const leaf = g
+      .selectAll("g")
+      .data(root.leaves())
+      .join("g")
+      .attr("transform", (d) => `translate(${d.x0},${d.y0})`)
+      .style("cursor", "pointer");
+
+    // Add rectangles
+    leaf
+      .append("rect")
+      .attr("id", (d) => d.data.id)
+      .attr("width", (d) => d.x1 - d.x0)
+      .attr("height", (d) => d.y1 - d.y0)
+      .attr("fill", (d) =>
+        getPercentageColor(d.data.percentChange, positionType === "short")
+      )
+      .style("stroke", (d) => (hoveredId === d.data.id ? "#ffffff" : "#121212")) // White border on hover
+      .style("stroke-width", (d) => (hoveredId === d.data.id ? "2" : "1")) // Thicker border on hover
+      .attr("opacity", (d) => (hoveredId && hoveredId !== d.data.id ? 0.7 : 1))
+      .on("mouseenter", (event, d) => setHoveredId(d.data.id))
+      .on("mouseleave", () => setHoveredId(null))
+      .on("click", (event, d) => {
+        event.stopPropagation();
+        handleStockClick(d.data);
+      });
+
+    // Add sector labels
+    root.children?.forEach((sector) => {
+      const sectorX = sector.x0;
+      const sectorY = sector.y0;
+      const sectorWidth = sector.x1 - sector.x0;
+
+      // Calculate sector percentage
+      const sectorPercentage = ((sector.value / root.value) * 100).toFixed(1);
+      const sectorName =
+        sectorWidth < 100
+          ? sectorAbbreviations[sector.data.name] || sector.data.name
+          : sector.data.name;
+
+      g.append("rect")
+        .attr("x", sectorX)
+        .attr("y", sectorY)
+        .attr("width", sectorWidth) // Add some padding
+        .attr("height", 20)
+        .attr("fill", "#1f1f1f") // Background color
+        .attr("rx", 2);
+      g.append("text")
+        .attr("x", sectorX + 4)
+        .attr("y", sectorY + 14)
+        .attr("fill", "#808080")
+        .style("font-size", "12px")
+        .text(`${sectorName} ${sectorPercentage}%`);
+    });
+
+    // Add stock labels
+    leaf.each(function (d) {
+      const width = d.x1 - d.x0;
+      const height = d.y1 - d.y0;
+      const g = d3.select(this);
+
+      if (width < 30 || height < 30) return;
+
+      // Create a group for the text elements
+      const textGroup = g.append("g").on("click", (event) => {
+        event.stopPropagation();
+        handleStockClick(d.data);
+      });
+
+      // Symbol
+      const symbolName = getAbbreviatedName(d.data.name, width);
+      textGroup
+        .append("text")
+        .attr("x", width / 2)
+        .attr("y", height / 2 - 10)
+        .attr("text-anchor", "middle")
+        .attr("fill", "white")
+        .style("font-weight", "bold")
+        .style("font-size", "12px")
+        .text(symbolName);
+
+      // Percentage
+      textGroup
+        .append("text")
+        .attr("x", width / 2)
+        .attr("y", height / 2 + 10)
+        .attr("text-anchor", "middle")
+        .attr("fill", "white")
+        .style("font-size", "12px")
+        .text(
+          `${
+            d.data.percentChange >= 0 ? "+" : ""
+          }${d.data.percentChange.toFixed(2)}%`
+        );
+
+      // Beta (if enough space)
+      if (height >= 70) {
+        textGroup
+          .append("text")
+          .attr("x", width / 2)
+          .attr("y", height / 2 + 25)
+          .attr("text-anchor", "middle")
+          .attr("fill", "#666666")
+          .style("font-size", "11px")
+          .text(`β: ${d.data.beta.toFixed(2)}`);
+      }
+    });
+  }, [portfolioData, positionType, hoveredId]);
 
   return (
-    <div className="w-full h-full bg-[#121212]">
+    <div className="absolute inset-0 top-10" style={{ background: "#121212" }}>
       <svg
         ref={svgRef}
         className="w-full h-full"
-        preserveAspectRatio="xMidYMid meet"
+        onClick={() => setSelectedStock(null)}
       />
+      {selectedStock && (
+        <StockDetailsPopup
+          stock={selectedStock}
+          onClose={() => setSelectedStock(null)}
+        />
+      )}
     </div>
   );
 };

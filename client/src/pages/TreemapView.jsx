@@ -1,34 +1,40 @@
-import React, { useEffect, useRef } from "react";
+// TreemapView.jsx
+import React, { useState } from "react";
 import PortfolioTreemap from "../components/PortfolioTreemap";
 
 const TreemapView = () => {
-  const containerRef = useRef(null);
-
-  useEffect(() => {
-    if (containerRef.current) {
-      const { clientWidth, clientHeight } = containerRef.current;
-      console.log("Container dimensions:", { clientWidth, clientHeight });
-    }
-  }, []);
+  const [activeView, setActiveView] = useState("long");
 
   return (
-    <div className="fixed inset-0 top-16 bg-[#121212]">
-      <div
-        ref={containerRef}
-        className="w-full h-full p-2"
-        style={{ height: "calc(100vh - 4rem)" }}
-      >
-        <div className="w-full h-full relative bg-[#121212] overflow-hidden border border-[#2A2A2A]">
-          <div className="flex items-center justify-between px-4 py-2 border-b border-[#2A2A2A]">
-            <h1 className="text-white text-lg font-medium">
-              Portfolio Treemap
-            </h1>
-            <div className="text-gray-400 text-sm">
+    <div className="fixed inset-0 top-16">
+      <div className="w-full h-full">
+        <div className="w-full h-full">
+          <div className="flex items-center justify-between px-4 py-2 bg-[#121212] border-b border-[#2A2A2A]">
+            <div className="flex-1" />
+            <div className="flex gap-6">
+              <button
+                className={`text-sm font-medium ${
+                  activeView === "long" ? "text-white" : "text-gray-400"
+                }`}
+                onClick={() => setActiveView("long")}
+              >
+                Long Positions
+              </button>
+              <button
+                className={`text-sm font-medium ${
+                  activeView === "short" ? "text-white" : "text-gray-400"
+                }`}
+                onClick={() => setActiveView("short")}
+              >
+                Short Positions
+              </button>
+            </div>
+            <div className="flex-1 text-right text-gray-400 text-sm">
               Last Updated: {new Date().toLocaleTimeString()}
             </div>
           </div>
-          <div className="absolute inset-0 top-10 p-2">
-            <PortfolioTreemap />
+          <div className="px-4">
+            <PortfolioTreemap positionType={activeView} />
           </div>
         </div>
       </div>
