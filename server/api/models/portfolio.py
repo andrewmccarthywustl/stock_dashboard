@@ -20,18 +20,37 @@ class Portfolio:
             'industry', 
             'percent_change', 
             'position_type',
-            'position_value'
+            'position_value',
+            'beta'  # Added beta column
         ]
         # Initialize empty DataFrame with all columns
         self.portfolio_df = pd.DataFrame(columns=self.columns)
+        
+        # Initialize metadata with default values
         self.metadata = {
-            "total_value": 0,
+            "total_long_value": 0,
+            "total_short_value": 0,
+            "long_short_ratio": "N/A",
+            "long_positions_count": 0,
+            "short_positions_count": 0,
+            "weighted_long_beta": 0,
+            "weighted_short_beta": 0,
             "total_realized_gains": 0,
-            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "long_sectors": {},
+            "short_sectors": {}
         }
+        
         self.transactions = []
         self.stock_service = StockService()
-        self.load_portfolio()
+        
+        try:
+            self.load_portfolio()
+        except Exception as e:
+            print(f"Error initializing portfolio: {str(e)}")
+            # Ensure we have a valid empty portfolio
+            self.save_portfolio()
+
 
     def load_portfolio(self):
         """Load portfolio data from JSON file"""
@@ -86,7 +105,8 @@ class Portfolio:
                 'industry': stock_info.get('industry', 'Unknown'),
                 'percent_change': ((current_price - validated_data['price']) / validated_data['price']) * 100,
                 'position_type': 'long',
-                'position_value': validated_data['quantity'] * current_price
+                'position_value': validated_data['quantity'] * current_price,
+                'beta': stock_info.get('beta', 0)  # Added beta
             }
 
             # First, check if we have any existing positions
@@ -114,7 +134,8 @@ class Portfolio:
                         'price': new_price,
                         'current_price': current_price,
                         'percent_change': ((current_price - new_price) / new_price) * 100,
-                        'position_value': new_quantity * current_price
+                        'position_value': new_quantity * current_price,
+                        'beta': stock_info.get('beta', 0)  # Added beta
                     }
                     
                     for key, value in update_data.items():
@@ -130,7 +151,8 @@ class Portfolio:
                 "symbol": validated_data['symbol'],
                 "quantity": validated_data['quantity'],
                 "price": validated_data['price'],
-                "date": validated_data['date']
+                "date": validated_data['date'],
+                "beta": stock_info.get('beta', 0)  # Added beta
             }
             self.transactions.append(transaction)
             
@@ -290,66 +312,71 @@ class Portfolio:
        }
 
     def add_short_position(self, stock_data):
-       """Add short position to portfolio"""
-       validated_data = self._validate_stock_data(stock_data, 'short')
-       
-       # Create transaction record
-       transaction = {
-           "type": "short",
-           "symbol": validated_data['symbol'],
-           "quantity": validated_data['quantity'],
-           "price": validated_data['price'],
-           "date": validated_data['date']
-       }
-       self.transactions.append(transaction)
+        """Add short position to portfolio"""
+        try:
+            validated_data = self._validate_stock_data(stock_data, 'short')
+            
+            # Get current price and other info from stock service
+            stock_info = self.stock_service.get_stock_info(validated_data['symbol'])
+            current_price = stock_info['price']
+            beta = stock_info.get('beta', 0)  # Explicitly get beta
+            
+            # Create transaction record
+            transaction = {
+                "type": "short",
+                "symbol": validated_data['symbol'],
+                "quantity": validated_data['quantity'],
+                "price": validated_data['price'],
+                "date": validated_data['date'],
+                "beta": beta  # Include beta in transaction
+            }
+            self.transactions.append(transaction)
 
-       # Get current price and other info
-       try:
-           stock_info = self.stock_service.get_stock_info(validated_data['symbol'])
-           validated_data.update({
-               "current_price": stock_info['price'],
-               "sector": stock_info.get('sector', 'Unknown'),
-               "industry": stock_info.get('industry', 'Unknown')
-           })
-       except Exception as e:
-           raise ValueError(f"Error fetching stock info: {str(e)}")
+            # Calculate percent change (for shorts, positive change in stock price is negative for position)
+            percent_change = ((validated_data['price'] - current_price) / validated_data['price']) * 100
 
-       # Calculate percent change (for shorts, positive change in stock price is negative for position)
-       percent_change = ((validated_data['price'] - validated_data['current_price']) / validated_data['price']) * 100
+            # Update portfolio
+            mask = (self.portfolio_df['symbol'] == validated_data['symbol']) & (self.portfolio_df['position_type'] == 'short')
+            if mask.any():
+                # Update existing short position
+                idx = self.portfolio_df[mask].index[0]
+                current_quantity = self.portfolio_df.at[idx, 'quantity']
+                current_price_avg = self.portfolio_df.at[idx, 'price']
+                
+                # Calculate new average price
+                total_value = (current_quantity * current_price_avg) + (validated_data['quantity'] * validated_data['price'])
+                new_quantity = current_quantity + validated_data['quantity']
+                new_price = total_value / new_quantity
+                
+                # Update all fields including beta
+                self.portfolio_df.at[idx, 'quantity'] = new_quantity
+                self.portfolio_df.at[idx, 'price'] = new_price
+                self.portfolio_df.at[idx, 'current_price'] = current_price
+                self.portfolio_df.at[idx, 'percent_change'] = percent_change
+                self.portfolio_df.at[idx, 'beta'] = beta
+                self.portfolio_df.at[idx, 'position_value'] = new_quantity * current_price
+            else:
+                # Add new short position
+                new_position = pd.DataFrame([{
+                    'symbol': validated_data['symbol'],
+                    'quantity': validated_data['quantity'],
+                    'price': validated_data['price'],
+                    'current_price': current_price,
+                    'sector': stock_info.get('sector', 'Unknown'),
+                    'industry': stock_info.get('industry', 'Unknown'),
+                    'percent_change': percent_change,
+                    'position_type': 'short',
+                    'position_value': validated_data['quantity'] * current_price,
+                    'beta': beta  # Include beta in new position
+                }])
+                self.portfolio_df = pd.concat([self.portfolio_df, new_position], ignore_index=True)
 
-       # Update portfolio
-       mask = (self.portfolio_df['symbol'] == validated_data['symbol']) & (self.portfolio_df['position_type'] == 'short')
-       if mask.any():
-           # Update existing short position
-           idx = self.portfolio_df[mask].index[0]
-           current_quantity = self.portfolio_df.at[idx, 'quantity']
-           current_price = self.portfolio_df.at[idx, 'price']
-           
-           # Calculate new average price
-           total_value = (current_quantity * current_price) + (validated_data['quantity'] * validated_data['price'])
-           new_quantity = current_quantity + validated_data['quantity']
-           new_price = total_value / new_quantity
-           
-           self.portfolio_df.at[idx, 'quantity'] = new_quantity
-           self.portfolio_df.at[idx, 'price'] = new_price
-           self.portfolio_df.at[idx, 'current_price'] = validated_data['current_price']
-           self.portfolio_df.at[idx, 'percent_change'] = percent_change
-       else:
-           # Add new short position
-           new_position = pd.DataFrame([{
-               'symbol': validated_data['symbol'],
-               'quantity': validated_data['quantity'],
-               'price': validated_data['price'],
-               'current_price': validated_data['current_price'],
-               'sector': validated_data['sector'],
-               'industry': validated_data['industry'],
-               'percent_change': percent_change,
-               'position_type': 'short'
-           }])
-           self.portfolio_df = pd.concat([self.portfolio_df, new_position], ignore_index=True)
-
-       self.update_portfolio_metadata()
-       self.save_portfolio()
+            self.update_portfolio_metadata()
+            self.save_portfolio()
+        
+        except Exception as e:
+            print(f"Error in add_short_position: {str(e)}")
+            raise
 
     def cover_short(self, stock_data):
        """Cover short position"""
@@ -426,32 +453,83 @@ class Portfolio:
             raise ValueError(f"Failed to update prices: {str(e)}")
        
     def update_portfolio_metadata(self):
-       """Update portfolio metadata"""
-       if not self.portfolio_df.empty:
-           # Calculate position values (negative for shorts, positive for longs)
-           self.portfolio_df['position_value'] = self.portfolio_df.apply(
-               lambda row: row['quantity'] * row['current_price'] * 
-               (-1 if row['position_type'] == 'short' else 1),
-               axis=1
-           )
-           
-           # Update total portfolio value
-           self.metadata["total_value"] = self.portfolio_df['position_value'].sum()
-           
-           # Calculate sector allocations
-           if self.metadata["total_value"] != 0:
-               sector_values = self.portfolio_df.groupby('sector')['position_value'].sum()
-               self.metadata["sectors"] = {
-                   sector: (value / abs(self.metadata["total_value"]) * 100)
-                   for sector, value in sector_values.items()
-               }
-           else:
-               self.metadata["sectors"] = {}
-       else:
-           self.metadata["total_value"] = 0
-           self.metadata["sectors"] = {}
-       
-       self.metadata["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        """Update portfolio metadata including long/short metrics and weighted betas"""
+        if not self.portfolio_df.empty:
+            # Separate long and short positions
+            long_positions = self.portfolio_df[self.portfolio_df['position_type'] == 'long']
+            short_positions = self.portfolio_df[self.portfolio_df['position_type'] == 'short']
+
+            # Calculate position values
+            self.portfolio_df['position_value'] = self.portfolio_df.apply(
+                lambda row: abs(row['quantity'] * row['current_price']),
+                axis=1
+            )
+
+            # Calculate total values
+            total_long_value = long_positions['position_value'].sum() if not long_positions.empty else 0
+            total_short_value = short_positions['position_value'].sum() if not short_positions.empty else 0
+
+            # Calculate long/short ratio
+            long_short_ratio = (
+                total_long_value / total_short_value if total_short_value > 0 
+                else "N/A"
+            )
+
+            # Calculate weighted betas
+            weighted_long_beta = (
+                (long_positions['beta'] * long_positions['position_value']).sum() / total_long_value
+                if total_long_value > 0 else 0
+            )
+            weighted_short_beta = (
+                (short_positions['beta'] * short_positions['position_value']).sum() / total_short_value
+                if total_short_value > 0 else 0
+            )
+
+            # Update metadata
+            self.metadata.update({
+                "total_long_value": total_long_value,
+                "total_short_value": total_short_value,
+                "long_short_ratio": long_short_ratio,
+                "long_positions_count": len(long_positions),
+                "short_positions_count": len(short_positions),
+                "weighted_long_beta": round(weighted_long_beta, 2),
+                "weighted_short_beta": round(weighted_short_beta, 2),
+                "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
+
+            # Calculate sector allocations separately for longs and shorts
+            if total_long_value > 0:
+                long_sector_values = long_positions.groupby('sector')['position_value'].sum()
+                self.metadata["long_sectors"] = {
+                    sector: (value / total_long_value * 100)
+                    for sector, value in long_sector_values.items()
+                }
+            else:
+                self.metadata["long_sectors"] = {}
+
+            if total_short_value > 0:
+                short_sector_values = short_positions.groupby('sector')['position_value'].sum()
+                self.metadata["short_sectors"] = {
+                    sector: (value / total_short_value * 100)
+                    for sector, value in short_sector_values.items()
+                }
+            else:
+                self.metadata["short_sectors"] = {}
+        else:
+            # Reset metadata for empty portfolio
+            self.metadata.update({
+                "total_long_value": 0,
+                "total_short_value": 0,
+                "long_short_ratio": "N/A",
+                "long_positions_count": 0,
+                "short_positions_count": 0,
+                "weighted_long_beta": 0,
+                "weighted_short_beta": 0,
+                "long_sectors": {},
+                "short_sectors": {},
+                "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
+
 
     def get_running_total(self, symbol):
        """Get running total of realized gains/losses for a symbol"""

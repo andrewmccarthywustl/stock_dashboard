@@ -1,7 +1,6 @@
 # ./server/api/routes/portfolio.py
 
 from flask import Blueprint, request, jsonify
-from datetime import datetime
 from api.models.portfolio import Portfolio
 from api.services.stock_service import StockService
 from utils.api_helpers import APIError
@@ -11,13 +10,21 @@ portfolio = Portfolio()
 stock_service = StockService()
 
 @portfolio_bp.route('/get-portfolio', methods=['GET'])
+@portfolio_bp.route('/get-portfolio', methods=['GET'])
 def get_portfolio():
     try:
         portfolio.load_portfolio()
+        print("Portfolio loaded successfully")
+        print("Raw portfolio dataframe:")
+        print(portfolio.portfolio_df)  # Print the raw dataframe
+        
         stocks_dict = portfolio.portfolio_df.set_index('symbol').to_dict(orient='index')
+        print("Converted portfolio dict:")
+        print(stocks_dict)
 
         stocks_list = []
         for symbol, data in stocks_dict.items():
+            print(f"Processing symbol {symbol}, data:", data)  # Debug each position
             position_data = {
                 "symbol": symbol,
                 "quantity": data["quantity"],
@@ -25,36 +32,43 @@ def get_portfolio():
                 "sector": data.get("sector", "Unknown"),
                 "industry": data.get("industry", "Unknown"),
                 "percent_change": round(data["percent_change"], 2),
-                "position_value": round(data["quantity"] * data["current_price"], 2),
-                "cost_basis": round(portfolio.calculate_cost_basis(symbol), 2),
-                "running_total_gains": round(portfolio.get_running_total(symbol), 2)
+                "position_type": data["position_type"],
+                "position_value": abs(data["quantity"] * data["current_price"]),  # Make sure we use absolute value
+                "cost_basis": round(portfolio.calculate_cost_basis(symbol, data["position_type"]), 2),
+                "running_total_gains": round(portfolio.get_running_total(symbol), 2),
+                "beta": data.get("beta", 0)
             }
+            print(f"Created position data:", position_data)  # Debug the processed data
             stocks_list.append(position_data)
-
-        total_value = portfolio.metadata["total_value"]
-        sector_allocation = {}
-        if total_value > 0:
-            for stock in stocks_list:
-                sector = stock["sector"]
-                if sector not in sector_allocation:
-                    sector_allocation[sector] = 0
-                sector_allocation[sector] += (stock["position_value"] / total_value) * 100
 
         response = {
             "metadata": {
-                "total_value": round(portfolio.metadata["total_value"], 2),
+                "total_long_value": round(portfolio.metadata["total_long_value"], 2),
+                "total_short_value": round(portfolio.metadata["total_short_value"], 2),
+                "long_short_ratio": (
+                    round(portfolio.metadata["long_short_ratio"], 2) 
+                    if isinstance(portfolio.metadata["long_short_ratio"], (int, float)) 
+                    else "N/A"
+                ),
+                "long_positions_count": portfolio.metadata["long_positions_count"],
+                "short_positions_count": portfolio.metadata["short_positions_count"],
+                "weighted_long_beta": portfolio.metadata["weighted_long_beta"],
+                "weighted_short_beta": portfolio.metadata["weighted_short_beta"],
                 "total_realized_gains": round(portfolio.metadata["total_realized_gains"], 2),
                 "last_updated": portfolio.metadata["last_updated"],
-                "sectors": sector_allocation,
-                "total_positions": len(stocks_list)
+                "long_sectors": portfolio.metadata["long_sectors"],
+                "short_sectors": portfolio.metadata["short_sectors"]
             },
             "stocks": stocks_list
         }
+        print("Final response:", response)  # Debug final response
 
         return jsonify(response), 200
 
     except Exception as e:
         print("Error in /get-portfolio:", str(e))
+        import traceback
+        print("Traceback:", traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
 @portfolio_bp.route('/add-stock', methods=['POST'])
@@ -91,23 +105,15 @@ def add_stock():
             "stockPurchaseDate": data['stockPurchaseDate']
         }
 
-        # Get current price and other info
-        try:
-            stock_info = stock_service.get_stock_info(stock_data["stockSymbol"])
-            stock_data.update({
-                "current_price": stock_info.get('price'),
-                "sector": stock_info.get('sector', 'Unknown'),
-                "industry": stock_info.get('industry', 'Unknown'),
-                "position_type": "long"
-            })
-        except APIError as ae:
-            return jsonify({"error": f"API Error: {str(ae)}"}), 503
-
+        # Add the stock and get the updated portfolio data
         portfolio.add_stock(stock_data)
-
+        
+        # Return updated portfolio data
+        updated_portfolio = portfolio.get_portfolio_summary()
+        
         return jsonify({
             "message": "Stock added successfully",
-            "data": stock_data
+            "portfolio": updated_portfolio
         }), 200
 
     except Exception as e:
@@ -146,14 +152,18 @@ def sell_stock():
         }
 
         result = portfolio.sell_stock(stock_data)
+        
+        # Return updated portfolio data along with the sell result
+        updated_portfolio = portfolio.get_portfolio_summary()
 
         return jsonify({
             "message": "Stock sold successfully",
-            "data": {
+            "result": {
                 "realized_gain": round(result["realized_gain"], 2),
                 "remaining_shares": result["remaining_shares"],
                 "running_total_gains": round(result["running_total"], 2)
-            }
+            },
+            "portfolio": updated_portfolio
         }), 200
 
     except ValueError as ve:
@@ -193,22 +203,14 @@ def short_stock():
             "stockShortDate": data['stockShortDate']
         }
 
-        try:
-            stock_info = stock_service.get_stock_info(stock_data["stockSymbol"])
-            stock_data.update({
-                "current_price": stock_info.get('price'),
-                "sector": stock_info.get('sector', 'Unknown'),
-                "industry": stock_info.get('industry', 'Unknown'),
-                "position_type": "short"
-            })
-        except APIError as ae:
-            return jsonify({"error": f"API Error: {str(ae)}"}), 503
-
         portfolio.add_short_position(stock_data)
+        
+        # Return updated portfolio data
+        updated_portfolio = portfolio.get_portfolio_summary()
 
         return jsonify({
             "message": "Short position opened successfully",
-            "data": stock_data
+            "portfolio": updated_portfolio
         }), 200
 
     except ValueError as ve:
@@ -249,14 +251,18 @@ def cover_stock():
         }
 
         result = portfolio.cover_short(stock_data)
+        
+        # Return updated portfolio data along with the cover result
+        updated_portfolio = portfolio.get_portfolio_summary()
 
         return jsonify({
             "message": "Short position covered successfully",
-            "data": {
+            "result": {
                 "realized_gain": round(result["realized_gain"], 2),
                 "remaining_shares": result["remaining_shares"],
                 "running_total_gains": round(result["running_total"], 2)
-            }
+            },
+            "portfolio": updated_portfolio
         }), 200
 
     except ValueError as ve:
@@ -270,13 +276,12 @@ def update_prices():
     try:
         portfolio.update_stock_prices()
         
+        # Return updated portfolio data
+        updated_portfolio = portfolio.get_portfolio_summary()
+        
         return jsonify({
             "message": "Prices updated successfully",
-            "metadata": {
-                "total_value": round(portfolio.metadata["total_value"], 2),
-                "total_realized_gains": round(portfolio.metadata["total_realized_gains"], 2),
-                "last_updated": portfolio.metadata["last_updated"]
-            }
+            "portfolio": updated_portfolio
         }), 200
     
     except APIError as ae:
@@ -299,6 +304,15 @@ def get_transactions():
             transactions = [t for t in transactions if t['type'] == transaction_type]
             
         transactions = sorted(transactions, key=lambda x: x['date'], reverse=True)
+        
+        # Add beta to transaction data if it exists
+        for t in transactions:
+            if 'beta' not in t:
+                try:
+                    stock_info = stock_service.get_stock_info(t['symbol'])
+                    t['beta'] = stock_info.get('beta', 0)
+                except:
+                    t['beta'] = 0
         
         return jsonify({
             "transactions": transactions,
