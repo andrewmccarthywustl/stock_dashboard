@@ -29,132 +29,85 @@ const TradeForm = () => {
   const initialFormData = {
     tradeType: "BUY",
     stockSymbol: "",
-    stockPurchaseQuantity: "",
-    stockPurchasePrice: "",
-    stockPurchaseDate: "",
-    stockSellQuantity: "",
-    stockSellPrice: "",
-    stockSellDate: "",
-    stockShortQuantity: "",
-    stockShortPrice: "",
-    stockShortDate: "",
-    stockCoverQuantity: "",
-    stockCoverPrice: "",
-    stockCoverDate: "",
+    quantity: "",
+    price: "",
+    date: new Date().toISOString().split("T")[0],
   };
 
   const [formData, setFormData] = useState(initialFormData);
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-
-  const getFieldNames = (tradeType) => {
-    const typeMap = {
-      BUY: "Purchase",
-      SELL: "Sell",
-      SHORT: "Short",
-      COVER: "Cover",
-    };
-    const prefix = `stock${typeMap[tradeType]}`;
-    return {
-      quantity: `${prefix}Quantity`,
-      price: `${prefix}Price`,
-      date: `${prefix}Date`,
-    };
-  };
+  const [successMessage, setSuccessMessage] = useState(null);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-
-    // For tradeType, we need to preserve existing values
-    if (name === "tradeType") {
-      const oldFields = getFieldNames(formData.tradeType);
-      const newFields = getFieldNames(value);
-
-      setFormData((prev) => ({
-        ...prev,
-        tradeType: value,
-        [newFields.quantity]: prev[oldFields.quantity],
-        [newFields.price]: prev[oldFields.price],
-        [newFields.date]: prev[oldFields.date],
-      }));
-      return;
-    }
-
-    // For other fields, map them to the correct name based on trade type
-    const fields = getFieldNames(formData.tradeType);
-    if (name === "quantity") {
-      setFormData((prev) => ({
-        ...prev,
-        [fields.quantity]: value,
-      }));
-    } else if (name === "price") {
-      setFormData((prev) => ({
-        ...prev,
-        [fields.price]: value,
-      }));
-    } else if (name === "date") {
-      setFormData((prev) => ({
-        ...prev,
-        [fields.date]: value,
-      }));
-    } else {
-      // For stockSymbol
-      setFormData((prev) => ({
-        ...prev,
-        [name]: value,
-      }));
-    }
     setError(null);
+    setSuccessMessage(null);
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
   };
 
-  const getCurrentValue = (fieldType) => {
-    const fields = getFieldNames(formData.tradeType);
-    switch (fieldType) {
-      case "quantity":
-        return formData[fields.quantity] || "";
-      case "price":
-        return formData[fields.price] || "";
-      case "date":
-        return formData[fields.date] || "";
-      default:
-        return "";
+  const validateForm = () => {
+    if (!formData.stockSymbol) {
+      setError("Stock symbol is required");
+      return false;
     }
+
+    if (!formData.quantity || formData.quantity <= 0) {
+      setError("Valid quantity is required");
+      return false;
+    }
+
+    if (!formData.price || formData.price <= 0) {
+      setError("Valid price is required");
+      return false;
+    }
+
+    if (!formData.date) {
+      setError("Date is required");
+      return false;
+    }
+
+    return true;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!validateForm()) return;
+
     setIsLoading(true);
     setError(null);
+    setSuccessMessage(null);
 
     try {
-      const apiMethod = {
-        BUY: api.addStock,
-        SELL: api.sellStock,
-        SHORT: api.shortStock,
-        COVER: api.coverStock,
-      }[formData.tradeType];
-
-      // Get only the relevant fields for the current trade type
-      const fields = getFieldNames(formData.tradeType);
-      const relevantData = {
-        stockSymbol: formData.stockSymbol,
-        [fields.quantity]: formData[fields.quantity],
-        [fields.price]: formData[fields.price],
-        [fields.date]: formData[fields.date],
+      const tradeData = {
+        symbol: formData.stockSymbol.toUpperCase(),
+        quantity: parseFloat(formData.quantity),
+        price: parseFloat(formData.price),
+        trade_type: TRADE_TYPES[formData.tradeType].type,
+        date: formData.date,
       };
 
-      console.log("Sending data:", relevantData);
-      const response = await apiMethod(relevantData);
-      console.log("Response:", response);
+      console.log("Sending trade data:", tradeData); // Debug log
 
+      const response = await api.executeTrade(tradeData);
+      console.log("Trade response:", response); // Debug log
+
+      setSuccessMessage(
+        `Successfully ${TRADE_TYPES[formData.tradeType].type} ${
+          formData.quantity
+        } shares of ${formData.stockSymbol}`
+      );
       setFormData(initialFormData);
     } catch (error) {
       console.error("Error details:", error.response?.data);
-      const errorMessage =
+      setError(
         error.response?.data?.error ||
-        error.response?.data?.message ||
-        `Error processing ${formData.tradeType.toLowerCase()} transaction`;
-      setError(errorMessage);
+          error.response?.data?.message ||
+          `Error processing ${formData.tradeType.toLowerCase()} transaction`
+      );
     } finally {
       setIsLoading(false);
     }
@@ -167,6 +120,12 @@ const TradeForm = () => {
       {error && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative">
           {error}
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative">
+          {successMessage}
         </div>
       )}
 
@@ -210,7 +169,7 @@ const TradeForm = () => {
         <input
           type="number"
           name="quantity"
-          value={getCurrentValue("quantity")}
+          value={formData.quantity}
           onChange={handleChange}
           required
           min="0"
@@ -226,7 +185,7 @@ const TradeForm = () => {
         <input
           type="number"
           name="price"
-          value={getCurrentValue("price")}
+          value={formData.price}
           onChange={handleChange}
           required
           min="0"
@@ -240,7 +199,7 @@ const TradeForm = () => {
         <input
           type="date"
           name="date"
-          value={getCurrentValue("date")}
+          value={formData.date}
           onChange={handleChange}
           required
           className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
@@ -251,19 +210,19 @@ const TradeForm = () => {
         type="submit"
         disabled={isLoading}
         className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white 
-          ${
-            isLoading
-              ? "opacity-50 cursor-not-allowed"
-              : `${
-                  tradeConfig.buttonClass
-                } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-${
-                  tradeConfig.buttonClass.includes("indigo")
-                    ? "indigo"
-                    : tradeConfig.buttonClass.includes("red")
-                    ? "red"
-                    : "green"
-                }-500`
-          }`}
+                    ${
+                      isLoading
+                        ? "opacity-50 cursor-not-allowed"
+                        : `${
+                            tradeConfig.buttonClass
+                          } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-${
+                            tradeConfig.buttonClass.includes("indigo")
+                              ? "indigo"
+                              : tradeConfig.buttonClass.includes("red")
+                              ? "red"
+                              : "green"
+                          }-500`
+                    }`}
       >
         {isLoading ? "Processing..." : tradeConfig.label}
       </button>

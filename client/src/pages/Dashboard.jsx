@@ -1,3 +1,4 @@
+// src/pages/Dashboard.jsx - Check the data structure
 import React, { useState, useEffect } from "react";
 import api from "../services/api";
 import PortfolioMetadata from "../components/PortfolioMetadata";
@@ -6,14 +7,8 @@ import UpdatePriceButton from "../components/UpdatePriceButton";
 
 const Dashboard = () => {
   const [portfolioData, setPortfolioData] = useState({
-    stocks: [],
-    metadata: {
-      total_value: 0,
-      total_realized_gains: 0,
-      last_updated: "",
-      total_positions: 0,
-      sectors: {},
-    },
+    metadata: {},
+    stocks: [], // Changed from positions to stocks to match backend
   });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -23,7 +18,11 @@ const Dashboard = () => {
       setIsLoading(true);
       setError(null);
       const response = await api.getPortfolio();
-      setPortfolioData(response);
+      // Transform the data structure if needed
+      setPortfolioData({
+        metadata: response.metadata,
+        stocks: response.positions || [], // Map positions to stocks
+      });
     } catch (error) {
       setError("Failed to load portfolio data");
       console.error("Error fetching portfolio:", error);
@@ -64,7 +63,6 @@ const Dashboard = () => {
         <h1 className="text-2xl font-bold">Portfolio Dashboard</h1>
         <UpdatePriceButton onPricesUpdated={fetchPortfolio} />
       </div>
-
       <PortfolioMetadata metadata={portfolioData.metadata} />
       <PortfolioList portfolioData={portfolioData} />
     </div>
