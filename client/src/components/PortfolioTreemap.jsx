@@ -1,14 +1,17 @@
 // PortfolioTreemap.jsx
 import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
-import axios from "axios";
+import api from "../services/api";
 import StockDetailsPopup from "./StockDetailsPopup";
+import LoadingSpinner from "./LoadingSpinner";
 
 const PortfolioTreemap = ({ positionType = "long" }) => {
   const svgRef = useRef(null);
   const [portfolioData, setPortfolioData] = useState({ stocks: [] });
   const [hoveredId, setHoveredId] = useState(null);
   const [selectedStock, setSelectedStock] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   // Abbreviations for sectors and stock names
   const sectorAbbreviations = {
@@ -26,13 +29,39 @@ const PortfolioTreemap = ({ positionType = "long" }) => {
     Unknown: "UNK",
   };
 
-  // Abbreviate stock name if needed
-  const getAbbreviatedName = (name, width) => {
-    if (width < 50 && name.length > 4) {
-      return name.substring(0, 4);
-    }
-    return name;
-  };
+  // Data fetching
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        // Using the updated API service
+        const response = await api.getPortfolio();
+        const positions = response.positions || [];
+
+        // Filter positions based on type
+        const filteredPositions = positions.filter(
+          (pos) => pos.position_type === positionType
+        );
+
+        setPortfolioData({
+          stocks: filteredPositions.map((pos) => ({
+            ...pos,
+            value: parseFloat(pos.position_value),
+            name: pos.symbol,
+            percentChange: pos.percent_change,
+          })),
+        });
+      } catch (error) {
+        console.error("Error fetching portfolio:", error);
+        setError("Failed to load portfolio data");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [positionType]);
 
   // Percentage-based color scale
   const getPercentageColor = (percentage, isShort = false) => {
@@ -61,20 +90,6 @@ const PortfolioTreemap = ({ positionType = "long" }) => {
     }
   };
 
-  // Data fetching
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const response = await axios.get("/api/portfolio/get-portfolio");
-        setPortfolioData(response.data);
-      } catch (error) {
-        console.error("Error fetching portfolio:", error);
-      }
-    };
-
-    fetchData();
-  }, []);
-
   // Handle stock selection
   const handleStockClick = (stock) => {
     const fullStockData = portfolioData.stocks.find(
@@ -83,8 +98,16 @@ const PortfolioTreemap = ({ positionType = "long" }) => {
     setSelectedStock(fullStockData);
   };
 
+  // Abbreviate stock name if needed
+  const getAbbreviatedName = (name, width) => {
+    if (width < 50 && name.length > 4) {
+      return name.substring(0, 4);
+    }
+    return name;
+  };
+
   useEffect(() => {
-    if (!portfolioData.stocks?.length) return;
+    if (!portfolioData.stocks?.length || isLoading) return;
 
     // Filter stocks based on position type
     const filteredStocks = portfolioData.stocks.filter(
@@ -112,7 +135,7 @@ const PortfolioTreemap = ({ positionType = "long" }) => {
         .attr("y", height / 2)
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "middle")
-        .style("fill", "#6B7280") // Using Tailwind's gray-500 color
+        .style("fill", "#6B7280")
         .style("font-size", "16px")
         .style("font-family", "Inter, sans-serif")
         .text(`No ${positionType} positions in portfolio`);
@@ -190,8 +213,8 @@ const PortfolioTreemap = ({ positionType = "long" }) => {
       .attr("fill", (d) =>
         getPercentageColor(d.data.percentChange, positionType === "short")
       )
-      .style("stroke", (d) => (hoveredId === d.data.id ? "#ffffff" : "#121212")) // White border on hover
-      .style("stroke-width", (d) => (hoveredId === d.data.id ? "2" : "1")) // Thicker border on hover
+      .style("stroke", (d) => (hoveredId === d.data.id ? "#ffffff" : "#121212"))
+      .style("stroke-width", (d) => (hoveredId === d.data.id ? "2" : "1"))
       .attr("opacity", (d) => (hoveredId && hoveredId !== d.data.id ? 0.7 : 1))
       .on("mouseenter", (event, d) => setHoveredId(d.data.id))
       .on("mouseleave", () => setHoveredId(null))
@@ -216,9 +239,9 @@ const PortfolioTreemap = ({ positionType = "long" }) => {
       g.append("rect")
         .attr("x", sectorX)
         .attr("y", sectorY)
-        .attr("width", sectorWidth) // Add some padding
+        .attr("width", sectorWidth)
         .attr("height", 20)
-        .attr("fill", "#1f1f1f") // Background color
+        .attr("fill", "#1f1f1f")
         .attr("rx", 2);
       g.append("text")
         .attr("x", sectorX + 4)
@@ -281,6 +304,30 @@ const PortfolioTreemap = ({ positionType = "long" }) => {
       }
     });
   }, [portfolioData, positionType, hoveredId]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[#121212]">
+        <LoadingSpinner size="large" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[#121212]">
+        <div className="text-white text-center">
+          <p className="text-xl mb-4">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-indigo-600 rounded hover:bg-indigo-700"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="absolute inset-0 top-10" style={{ background: "#121212" }}>

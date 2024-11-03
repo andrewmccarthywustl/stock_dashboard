@@ -11,12 +11,14 @@ const TransactionHistory = () => {
     error: contextError,
     fetchTransactions,
   } = useTransactions();
+
   const [filters, setFilters] = useState({
     symbol: "",
-    type: "",
-    startDate: "",
-    endDate: "",
+    transaction_type: "",
+    start_date: "",
+    end_date: "",
   });
+
   const [error, setError] = useState(null);
   const [summary, setSummary] = useState({
     total_value: 0,
@@ -29,8 +31,32 @@ const TransactionHistory = () => {
     const loadTransactions = async () => {
       try {
         logInfo("Loading transactions with filters:", filters);
-        const response = await fetchTransactions(filters);
-        setSummary(response.summary);
+        const validFilters = Object.entries(filters).reduce(
+          (acc, [key, value]) => {
+            if (value) acc[key] = value;
+            return acc;
+          },
+          {}
+        );
+
+        if (validFilters.start_date) {
+          validFilters.start_date = new Date(
+            validFilters.start_date
+          ).toISOString();
+        }
+        if (validFilters.end_date) {
+          validFilters.end_date = new Date(validFilters.end_date).toISOString();
+        }
+
+        const response = await fetchTransactions(validFilters);
+        setSummary(
+          response.summary || {
+            total_value: 0,
+            realized_gains: 0,
+            total_transactions: 0,
+            last_updated: new Date().toISOString(),
+          }
+        );
       } catch (err) {
         logError("Failed to load transactions:", err);
         setError(err.message || "Failed to load transactions");
@@ -61,8 +87,10 @@ const TransactionHistory = () => {
     }
   };
 
-  const getTransactionTypeColor = (type) => {
-    switch (type.toLowerCase()) {
+  const getTransactionTypeColor = (transactionType) => {
+    if (!transactionType) return "bg-gray-100 text-gray-800";
+
+    switch (transactionType.toLowerCase()) {
       case "buy":
         return "bg-green-100 text-green-800";
       case "sell":
@@ -151,15 +179,15 @@ const TransactionHistory = () => {
 
         <div>
           <label
-            htmlFor="type"
+            htmlFor="transaction_type"
             className="block text-sm font-medium text-gray-700"
           >
             Type
           </label>
           <select
-            id="type"
-            name="type"
-            value={filters.type}
+            id="transaction_type"
+            name="transaction_type"
+            value={filters.transaction_type}
             onChange={handleFilterChange}
             className="mt-1 block w-40 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
           >
@@ -173,16 +201,16 @@ const TransactionHistory = () => {
 
         <div>
           <label
-            htmlFor="startDate"
+            htmlFor="start_date"
             className="block text-sm font-medium text-gray-700"
           >
             Start Date
           </label>
           <input
             type="date"
-            id="startDate"
-            name="startDate"
-            value={filters.startDate}
+            id="start_date"
+            name="start_date"
+            value={filters.start_date}
             onChange={handleFilterChange}
             className="mt-1 block w-40 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
           />
@@ -190,16 +218,16 @@ const TransactionHistory = () => {
 
         <div>
           <label
-            htmlFor="endDate"
+            htmlFor="end_date"
             className="block text-sm font-medium text-gray-700"
           >
             End Date
           </label>
           <input
             type="date"
-            id="endDate"
-            name="endDate"
-            value={filters.endDate}
+            id="end_date"
+            name="end_date"
+            value={filters.end_date}
             onChange={handleFilterChange}
             className="mt-1 block w-40 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
           />
@@ -297,10 +325,10 @@ const TransactionHistory = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <span
                         className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getTransactionTypeColor(
-                          transaction.type
+                          transaction.transaction_type
                         )}`}
                       >
-                        {transaction.type.toUpperCase()}
+                        {(transaction.transaction_type || "").toUpperCase()}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">

@@ -42,7 +42,6 @@ apiClient.interceptors.response.use(
   },
   (error) => {
     if (error.response) {
-      // Server responded with error status
       logError("API Error Response:", {
         url: error.config?.url,
         status: error.response.status,
@@ -50,14 +49,12 @@ apiClient.interceptors.response.use(
         method: error.config?.method,
       });
     } else if (error.request) {
-      // Request made but no response
       logError("API No Response:", {
         url: error.config?.url,
         method: error.config?.method,
         message: "No response received from server",
       });
     } else {
-      // Request setup error
       logError("API Request Setup Error:", {
         message: error.message,
         config: error.config,
@@ -72,7 +69,7 @@ const api = {
   getPortfolio: async () => {
     try {
       logInfo("Fetching portfolio data");
-      const response = await apiClient.get("/portfolio"); // Changed from "/get-portfolio"
+      const response = await apiClient.get("/portfolio"); // Updated to match new endpoint
       return response.data;
     } catch (error) {
       logError("Failed to fetch portfolio:", error);
@@ -88,26 +85,38 @@ const api = {
       logInfo("Fetching transactions with filters:", filters);
       const response = await apiClient.get("/transactions", {
         params: {
-          ...filters,
-          // Convert dates to ISO strings if present
-          startDate: filters.startDate
-            ? new Date(filters.startDate).toISOString()
-            : undefined,
-          endDate: filters.endDate
-            ? new Date(filters.endDate).toISOString()
-            : undefined,
+          symbol: filters.symbol,
+          transaction_type: filters.transaction_type,
+          start_date: filters.start_date,
+          end_date: filters.end_date,
         },
       });
 
-      // Ensure consistent response structure
+      // Transform the response to ensure consistent structure
+      const transactions = Array.isArray(response.data)
+        ? response.data.map((transaction) => ({
+            ...transaction,
+            transaction_type: transaction.transaction_type || transaction.type, // Handle both possible field names
+            total_value:
+              transaction.total_value ||
+              transaction.quantity * transaction.price,
+            realized_gain: transaction.realized_gain || null,
+          }))
+        : response.data.transactions || [];
+
+      const summary =
+        !Array.isArray(response.data) && response.data.summary
+          ? response.data.summary
+          : {
+              total_value: 0,
+              realized_gains: 0,
+              total_transactions: transactions.length,
+              last_updated: new Date().toISOString(),
+            };
+
       return {
-        transactions: response.data.transactions || [],
-        summary: response.data.summary || {
-          total_value: 0,
-          realized_gains: 0,
-          total_transactions: 0,
-          last_updated: new Date().toISOString(),
-        },
+        transactions,
+        summary,
       };
     } catch (error) {
       logError("Failed to fetch transactions:", error);
