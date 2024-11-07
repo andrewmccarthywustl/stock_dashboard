@@ -2,31 +2,26 @@
 from flask import Flask
 from flask_cors import CORS
 from flask_compress import Compress
-from redis import Redis
 from api.routes.portfolio_bp import portfolio_bp
 from api.config import get_config
 from api.services import (
     PortfolioService,
     PositionService,
     StockService,
-    AnalyticsService,
-    CacheService
+    AnalyticsService
 )
 from api.repositories import (
     PortfolioRepository,
     TransactionRepository
 )
-from api.core.middleware import (
-    setup_middleware,
-    error_handler,
-    rate_limiter,
-    circuit_breaker
-)
+from api.core.middleware import setup_middleware
 from api.core.logging import setup_logging
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from api.services.stock_providers.alpha_vantage import AlphaVantageProvider
 import logging
 import os
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import atexit
 
 def create_app(config_name=None):
     """Create and configure the Flask application"""
@@ -49,64 +44,71 @@ def create_app(config_name=None):
         # Enable compression
         Compress(app)
         
-        # Initialize Redis connection
-        redis_client = Redis(
-            host=app.config['REDIS_HOST'],
-            port=app.config['REDIS_PORT'],
-            password=app.config['REDIS_PASSWORD'],
-            decode_responses=True
-        )
+        # Set up async support
+        executor = ThreadPoolExecutor(max_workers=app.config.get('MAX_THREAD_POOL_SIZE', 20))
+        app.executor = executor
         
-        # Initialize thread pool
-        thread_pool = ThreadPoolExecutor(
-            max_workers=app.config['MAX_THREAD_POOL_SIZE'],
-            thread_name_prefix="AsyncWorker"
-        )
+        # Create event loop for async operations
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        app.loop = loop
         
-        # Initialize services and repositories
-        cache_service = CacheService(redis_client)
+        # Register cleanup
+        @atexit.register
+        def cleanup():
+            executor.shutdown(wait=True)
+            if loop.is_running():
+                loop.stop()
+            if not loop.is_closed():
+                loop.close()
         
         # Ensure data directories exist
         os.makedirs(app.config['DATA_DIR'], exist_ok=True)
         
         # Initialize repositories
         portfolio_repo = PortfolioRepository(
-            app.config['PORTFOLIO_FILE'],
-            # cache_service=cache_service
+            os.path.join(app.config['DATA_DIR'], 'portfolio.json')
         )
         
         transaction_repo = TransactionRepository(
-            app.config['TRANSACTION_FILE'],
-            # cache_service=cache_service
+            os.path.join(app.config['DATA_DIR'], 'transactions.json')
         )
         
-        # Initialize services
-        stock_service = StockService(
-            app.config['FMP_API_KEY'],
-            # cache_service=cache_service,
-            # thread_pool=thread_pool
-        )
+        # Initialize Alpha Vantage provider
+        alpha_vantage_key = app.config.get('ALPHA_VANTAGE_API_KEY')
+        if not alpha_vantage_key:
+            raise ValueError("ALPHA_VANTAGE_API_KEY must be set in configuration")
+            
+        stock_provider = AlphaVantageProvider(alpha_vantage_key)
         
+        # Initialize stock service
+        stock_service = StockService(stock_provider)
+        
+        # Store the stock provider for cleanup
+        app.stock_provider = stock_provider
+        
+        # Initialize position service
         position_service = PositionService(
             portfolio_repo,
-            stock_service,
-            # cache_service=cache_service
+            stock_service
         )
         
         analytics_service = AnalyticsService(
             portfolio_repo,
-            transaction_repo,
-            # cache_service=cache_service
+            transaction_repo
         )
         
         portfolio_service = PortfolioService(
             portfolio_repo,
             transaction_repo,
             position_service,
-            stock_service,
-            # cache_service=cache_service,
-            # thread_pool=thread_pool
+            stock_service
         )
+        
+        # Store services in app context
+        app.stock_service = stock_service
+        app.portfolio_service = portfolio_service
+        app.analytics_service = analytics_service
         
         # Setup middleware
         setup_middleware(app)
@@ -119,32 +121,20 @@ def create_app(config_name=None):
             analytics_service=analytics_service
         )
         
+        # Request teardown to cleanup aiohttp sessions
+        @app.teardown_appcontext
+        async def cleanup_sessions(exception=None):
+            if hasattr(app, 'stock_provider'):
+                await app.stock_provider.cleanup()
+        
         # Health check endpoint
         @app.route('/health')
         def health_check():
             return {
                 'status': 'healthy',
-                'cache': cache_service.is_healthy(),
-                'redis': redis_client.ping(),
                 'version': app.config['API_VERSION']
             }
         
-        # Error handlers
-        @app.errorhandler(404)
-        def not_found_error(error):
-            return {
-                'error': 'Not Found',
-                'message': 'The requested resource was not found'
-            }, 404
-
-        @app.errorhandler(500)
-        def internal_error(error):
-            logger.exception("Internal server error")
-            return {
-                'error': 'Internal Server Error',
-                'message': 'An unexpected error occurred'
-            }, 500
-
         logger.info(
             "Application initialized successfully",
             extra={
@@ -164,10 +154,6 @@ def run_app():
     app = create_app()
     
     try:
-        # Set up asyncio policy for Windows if needed
-        if asyncio.get_event_loop_policy()._local._loop is None:
-            asyncio.set_event_loop(asyncio.new_event_loop())
-        
         host = app.config.get('HOST', '0.0.0.0')
         port = app.config.get('PORT', 8080)
         debug = app.config.get('DEBUG', False)
@@ -194,5 +180,6 @@ def run_app():
     except Exception as e:
         logger.error(f"Failed to run application: {str(e)}")
         raise
+
 if __name__ == "__main__":
     run_app()

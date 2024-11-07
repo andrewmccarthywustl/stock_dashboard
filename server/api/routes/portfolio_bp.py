@@ -3,10 +3,11 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime
 from decimal import Decimal
 import logging
-from api.services.portfolio_service import PortfolioService
-from api.services.analytics_service import AnalyticsService
+from ..services.portfolio_service import PortfolioService
+from ..services.analytics_service import AnalyticsService
 from utils.api_helpers import validate_required_fields
 from utils.async_helpers import async_route
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -22,40 +23,41 @@ def record_params(setup_state):
 async def get_portfolio():
     """Get portfolio summary"""
     try:
-        # The portfolio_service.get_portfolio_summary() method needs to be async
+        # Get raw portfolio data first
         portfolio = portfolio_bp.portfolio_service.get_portfolio_summary()
-        # Since it's not an async method, we don't await it
+        
+        # If there are positions, update their prices
+        if portfolio.get('positions'):
+            symbols = [p['symbol'] for p in portfolio['positions']]
+            stock_service = portfolio_bp.portfolio_service.stock_service
+            
+            # Get updated prices
+            try:
+                prices = await stock_service.get_batch_quotes(symbols)
+                
+                # Update prices in portfolio data
+                for position in portfolio['positions']:
+                    symbol = position['symbol']
+                    if symbol in prices:
+                        position['current_price'] = str(prices[symbol])
+                        # Recalculate position value and gains
+                        quantity = Decimal(position['quantity'])
+                        position['position_value'] = str(prices[symbol] * quantity)
+                        cost_basis = Decimal(position['cost_basis'])
+                        position['running_total_gains'] = str((prices[symbol] - cost_basis) * quantity)
+                
+                # Update last_updated timestamp
+                portfolio['metadata']['last_updated'] = datetime.now().isoformat()
+                
+            except Exception as e:
+                logger.error(f"Error updating prices: {str(e)}")
+                # Continue with existing prices if update fails
+                pass
+        
         logger.info(f"Portfolio data retrieved: {portfolio}")
         return jsonify(portfolio), 200
     except Exception as e:
         logger.error(f"Error getting portfolio: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
-@portfolio_bp.route('/positions', methods=['GET'])
-@async_route
-async def get_positions():
-    """Get all positions"""
-    try:
-        position_type = request.args.get('type')  # 'long' or 'short'
-        # Get positions without await since it's not async
-        positions = portfolio_bp.portfolio_service.get_all_positions()
-        if position_type:
-            positions = [p for p in positions if p.position_type == position_type]
-        return jsonify([p.to_dict() for p in positions]), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@portfolio_bp.route('/position/<symbol>/<position_type>', methods=['GET'])
-@async_route
-async def get_position(symbol: str, position_type: str):
-    """Get specific position"""
-    try:
-        # Remove await since get_position is not async
-        position = portfolio_bp.portfolio_service.get_position(symbol, position_type)
-        if position:
-            return jsonify(position.to_dict()), 200
-        return jsonify({"error": "Position not found"}), 404
-    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @portfolio_bp.route('/trade', methods=['POST'])
@@ -67,10 +69,9 @@ async def execute_trade():
         data = request.json
         logger.info(f"Trade request data: {data}")
         
-        if not all(k in data for k in ['symbol', 'quantity', 'price', 'trade_type', 'date']):
-            missing = [k for k in ['symbol', 'quantity', 'price', 'trade_type', 'date'] if k not in data]
-            logger.error(f"Missing required fields: {missing}")
-            return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
+        # Validate required fields
+        required_fields = ['symbol', 'quantity', 'price', 'trade_type', 'date']
+        validate_required_fields(data, required_fields)
 
         try:
             symbol = data['symbol'].upper()
@@ -81,28 +82,48 @@ async def execute_trade():
             
             logger.info(f"Processing {trade_type} order for {quantity} shares of {symbol} at {price}")
             
+            # Get stock info for new position
+            stock_service = portfolio_bp.portfolio_service.stock_service
+            stock_info = await stock_service.get_stock_info(symbol)
+            
             portfolio_service = portfolio_bp.portfolio_service
             
-            trade_functions = {
-                'buy': portfolio_service.execute_buy,
-                'sell': portfolio_service.execute_sell,
-                'short': portfolio_service.execute_short,
-                'cover': portfolio_service.execute_cover
-            }
-            
-            if trade_type not in trade_functions:
+            # Execute trade based on type
+            trade_result = None
+            if trade_type == 'buy':
+                trade_result = await portfolio_service.execute_buy(
+                    symbol=symbol,
+                    quantity=quantity,
+                    price=price,
+                    date=date
+                )
+            elif trade_type == 'sell':
+                trade_result = await portfolio_service.execute_sell(
+                    symbol=symbol,
+                    quantity=quantity,
+                    price=price,
+                    date=date
+                )
+            elif trade_type == 'short':
+                trade_result = await portfolio_service.execute_short(
+                    symbol=symbol,
+                    quantity=quantity,
+                    price=price,
+                    date=date
+                )
+            elif trade_type == 'cover':
+                trade_result = await portfolio_service.execute_cover(
+                    symbol=symbol,
+                    quantity=quantity,
+                    price=price,
+                    date=date
+                )
+            else:
                 logger.error(f"Invalid trade type: {trade_type}")
                 return jsonify({"error": f"Invalid trade type: {trade_type}"}), 400
-                
-            # These methods are async, so we await them
-            result = await trade_functions[trade_type](
-                symbol=symbol,
-                quantity=quantity,
-                price=price,
-                date=date
-            )
             
-            position, transaction = result
+            position, transaction = trade_result
+            
             logger.info(f"Trade executed successfully: {transaction.to_dict()}")
             
             return jsonify({
@@ -127,10 +148,36 @@ async def execute_trade():
 async def update_prices():
     """Update all position prices"""
     try:
-        # This method should be async
-        updated_portfolio = await portfolio_bp.portfolio_service.update_portfolio()
-        return jsonify(updated_portfolio.to_dict()), 200
+        # Get all positions
+        positions = portfolio_bp.portfolio_service.get_all_positions()
+        
+        if not positions:
+            return jsonify({"message": "No positions to update"}), 200
+        
+        # Get symbols
+        symbols = [p.symbol for p in positions]
+        
+        # Get updated prices
+        stock_service = portfolio_bp.portfolio_service.stock_service
+        prices = await stock_service.get_batch_quotes(symbols)
+        
+        # Update each position
+        for position in positions:
+            if position.symbol in prices:
+                position.current_price = prices[position.symbol]
+                position.last_updated = datetime.now()
+        
+        # Update portfolio
+        portfolio = portfolio_bp.portfolio_service.get_default_portfolio()
+        portfolio_bp.portfolio_service.update(portfolio)
+        
+        return jsonify({
+            "message": "Prices updated successfully",
+            "updated_count": len(prices),
+            "timestamp": datetime.now().isoformat()
+        }), 200
     except Exception as e:
+        logger.error(f"Error updating prices: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @portfolio_bp.route('/metrics', methods=['GET'])
@@ -138,7 +185,6 @@ async def update_prices():
 async def get_metrics():
     """Get portfolio metrics"""
     try:
-        # Remove await since calculate_portfolio_metrics is not async
         metrics = portfolio_bp.analytics_service.calculate_portfolio_metrics()
         return jsonify(metrics), 200
     except Exception as e:
@@ -164,7 +210,6 @@ async def get_transactions():
         if end_date:
             filters['end_date'] = datetime.fromisoformat(end_date)
             
-        # Remove await since get_position_history is not async
         transactions = portfolio_bp.portfolio_service.get_position_history(**filters)
         return jsonify(transactions), 200
     except Exception as e:
@@ -175,9 +220,11 @@ async def get_transactions():
 async def get_sector_exposure():
     """Get sector exposure"""
     try:
-        # Remove await since get_portfolio_summary is not async
         portfolio = portfolio_bp.portfolio_service.get_portfolio_summary()
-        exposure = portfolio['sector_exposure']
+        exposure = portfolio['metadata'].get('sector_exposure', {
+            'long': {},
+            'short': {}
+        })
         return jsonify(exposure), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -187,7 +234,6 @@ async def get_sector_exposure():
 async def get_beta_exposure():
     """Get portfolio beta exposure"""
     try:
-        # Remove await since calculate_portfolio_metrics is not async
         metrics = portfolio_bp.analytics_service.calculate_portfolio_metrics()
         beta_exposure = {
             'long_beta_exposure': metrics['long_beta_exposure'],

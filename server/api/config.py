@@ -34,41 +34,15 @@ class Config:
     PORTFOLIO_FILE = os.path.join(DATA_DIR, 'portfolio.json')
     TRANSACTION_FILE = os.path.join(DATA_DIR, 'transactions.json')
     
-    # External APIs
-    FMP_API_KEY = os.getenv('FMP_API_KEY')
-    FMP_API_BASE_URL = 'https://financialmodelingprep.com/api/v3'
-    
-    # Redis settings
-    REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
-    REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
-    REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)
-    REDIS_DB = int(os.getenv('REDIS_DB', 0))
-    REDIS_URL = os.getenv('REDIS_URL', f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}')
-    
-    # Cache settings
-    CACHE_ENABLED = os.getenv('CACHE_ENABLED', 'True').lower() == 'true'
-    CACHE_TYPE = 'redis'
-    CACHE_DEFAULT_TIMEOUT = int(os.getenv('CACHE_DEFAULT_TIMEOUT', 300))
-    CACHE_KEY_PREFIX = 'stock_portfolio:'
-    CACHE_REDIS_URL = REDIS_URL
-    
-    # Session settings
-    SESSION_TYPE = 'redis'
-    SESSION_REDIS = REDIS_URL
-    SESSION_PERMANENT = False
-    PERMANENT_SESSION_LIFETIME = timedelta(days=1)
+    # Alpha Vantage Settings
+    ALPHA_VANTAGE_API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY')
+    ALPHA_VANTAGE_RATE_LIMIT = 150  # requests per minute
+    ALPHA_VANTAGE_BATCH_SIZE = 100  # maximum symbols per request
     
     # CORS settings
     CORS_ORIGINS = os.getenv('CORS_ORIGINS', '*').split(',')
     CORS_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
     CORS_ALLOW_HEADERS = ['Content-Type', 'Authorization', 'X-Request-ID']
-    
-    # Rate limiting
-    RATELIMIT_ENABLED = True
-    RATELIMIT_STRATEGY = 'redis'
-    RATELIMIT_STORAGE_URL = REDIS_URL
-    RATELIMIT_DEFAULT = "100/minute"
-    RATELIMIT_HEADERS_ENABLED = True
     
     # Logging
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
@@ -82,14 +56,8 @@ class Config:
     MAX_THREAD_POOL_SIZE = int(os.getenv('MAX_THREAD_POOL_SIZE', 20))
     REQUEST_TIMEOUT = int(os.getenv('REQUEST_TIMEOUT', 30))  # seconds
     
-    # Circuit Breaker
-    CIRCUIT_BREAKER_ENABLED = True
-    CIRCUIT_BREAKER_FAILURE_THRESHOLD = 5
-    CIRCUIT_BREAKER_RESET_TIMEOUT = 60  # seconds
-    
     # Stock Service
     STOCK_DATA_CACHE_TIME = 60  # seconds
-    BATCH_QUOTE_SIZE = 100  # maximum number of symbols per batch request
     MARKET_HOURS_START = "09:30"  # Eastern Time
     MARKET_HOURS_END = "16:00"    # Eastern Time
     
@@ -109,7 +77,10 @@ class Config:
         # Set Flask config
         app.config.from_object(cls)
         
-        # Additional initialization can be added here
+        # Validate required settings
+        if not cls.ALPHA_VANTAGE_API_KEY:
+            raise ValueError("ALPHA_VANTAGE_API_KEY must be set in environment variables")
+        
         return app
 
 class DevelopmentConfig(Config):
@@ -118,7 +89,6 @@ class DevelopmentConfig(Config):
     DEBUG = True
     
     # Development-specific settings
-    SQLALCHEMY_ECHO = True
     TEMPLATES_AUTO_RELOAD = True
 
 class TestingConfig(Config):
@@ -130,13 +100,6 @@ class TestingConfig(Config):
     # Testing-specific settings
     PORTFOLIO_FILE = os.path.join(Config.DATA_DIR, 'test_portfolio.json')
     TRANSACTION_FILE = os.path.join(Config.DATA_DIR, 'test_transactions.json')
-    
-    # Use memory storage for testing
-    CACHE_TYPE = 'simple'
-    SESSION_TYPE = 'filesystem'
-    
-    # Disable rate limiting in tests
-    RATELIMIT_ENABLED = False
 
 class ProductionConfig(Config):
     """Production configuration"""
