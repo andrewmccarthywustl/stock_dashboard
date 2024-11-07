@@ -3,7 +3,7 @@ from flask import Flask
 from flask_cors import CORS
 from flask_compress import Compress
 from api.routes.portfolio_bp import portfolio_bp
-from api.config import get_config
+from api.config.config import get_config
 from api.services import (
     PortfolioService,
     PositionService,
