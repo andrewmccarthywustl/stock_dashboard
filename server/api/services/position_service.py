@@ -123,3 +123,21 @@ class PositionService:
         position.quantity = new_quantity
         self.portfolio_repo.update(self.portfolio_repo.get_default_portfolio())
         return position
+    async def update_position_price(
+        self,
+        symbol: str,
+        position_type: str
+    ) -> bool:
+        """Update position's current price"""
+        try:
+            stock_info = await self.stock_service.get_stock_info(symbol)
+            new_price = Decimal(str(stock_info['price']))
+            
+            return self.portfolio_repo.update_position_price(
+                symbol,
+                position_type,
+                new_price
+            )
+        except Exception as e:
+            self.logger.error(f"Error updating position price: {str(e)}")
+            return False

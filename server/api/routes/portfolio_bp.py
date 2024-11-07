@@ -148,7 +148,7 @@ async def execute_trade():
 async def update_prices():
     """Update all position prices"""
     try:
-        # Get all positions
+        # Get all positions using the portfolio service
         positions = portfolio_bp.portfolio_service.get_all_positions()
         
         if not positions:
@@ -161,19 +161,20 @@ async def update_prices():
         stock_service = portfolio_bp.portfolio_service.stock_service
         prices = await stock_service.get_batch_quotes(symbols)
         
-        # Update each position
+        # Update each position's price
+        updated_count = 0
         for position in positions:
             if position.symbol in prices:
-                position.current_price = prices[position.symbol]
-                position.last_updated = datetime.now()
-        
-        # Update portfolio
-        portfolio = portfolio_bp.portfolio_service.get_default_portfolio()
-        portfolio_bp.portfolio_service.update(portfolio)
+                # Just await the update_position_price method with only the symbol
+                await portfolio_bp.portfolio_service.position_service.update_position_price(
+                    position.symbol,
+                    position.position_type  # Keep position type for future compatibility
+                )
+                updated_count += 1
         
         return jsonify({
             "message": "Prices updated successfully",
-            "updated_count": len(prices),
+            "updated_count": updated_count,
             "timestamp": datetime.now().isoformat()
         }), 200
     except Exception as e:

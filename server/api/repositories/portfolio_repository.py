@@ -126,7 +126,42 @@ class PortfolioRepository(JSONRepository[Portfolio]):
         except Exception as e:
             self.logger.error(f"Error updating position: {str(e)}")
             raise
-
+    def update_position_price(
+        self,
+        symbol: str,
+        position_type: str,
+        new_price: Decimal
+    ) -> bool:
+        """Update a position's current price
+        
+        Args:
+            symbol: Stock symbol
+            position_type: Type of position (long/short)
+            new_price: New price to set
+            
+        Returns:
+            True if update successful, False otherwise
+        """
+        try:
+            portfolio = self.get_default_portfolio()
+            updated = False
+            
+            for position in portfolio.positions:
+                if position.symbol == symbol and position.position_type == position_type:
+                    position.current_price = new_price
+                    position.last_updated = datetime.now()
+                    updated = True
+                    break
+                    
+            if updated:
+                portfolio.update_metadata()
+                self.update(portfolio)
+                
+            return updated
+            
+        except Exception as e:
+            self.logger.error(f"Error updating position price: {str(e)}")
+            return False
     def add_position(self, position: Position) -> None:
         """Add a position to the portfolio"""
         try:

@@ -169,36 +169,47 @@ class AlphaVantageProvider(StockDataProvider):
             }
 
     async def get_batch_quotes(self, symbols: List[str]) -> Dict[str, Decimal]:
-        """Get quotes for multiple symbols using premium bulk quote endpoint"""
+        """Get quotes for multiple symbols by making individual requests
+        
+        Args:
+            symbols: List of stock symbols
+            
+        Returns:
+            Dictionary mapping symbols to their current prices
+        """
         if not symbols:
             return {}
             
         quotes = {}
         
         try:
-            # Split symbols into batches of BATCH_SIZE
-            for i in range(0, len(symbols), self.BATCH_SIZE):
-                batch = symbols[i:i + self.BATCH_SIZE]
-                params = {
-                    'function': 'REALTIME_BULK_QUOTES',
-                    'symbols': ','.join(batch)
-                }
-                
-                response = await self._make_request(params)
-                
-                # Process batch quotes response
-                if 'Stock Quotes' in response:
-                    for quote in response['Stock Quotes']:
-                        try:
-                            symbol = quote.get('1. symbol', '')
-                            price = quote.get('2. price', '0')
+            # Process each symbol individually
+            for symbol in symbols:
+                try:
+                    params = {
+                        'function': 'GLOBAL_QUOTE',
+                        'symbol': symbol
+                    }
+                    
+                    response = await self._make_request(params)
+                    
+                    # Extract price from Global Quote response
+                    quote_data = response.get('Global Quote', {})
+                    if quote_data:
+                        price = quote_data.get('05. price')
+                        if price:
                             quotes[symbol] = Decimal(str(price))
-                        except (TypeError, ValueError) as e:
-                            logger.error(f"Error parsing price for {symbol}: {e}")
-                            continue
-                            
+                        else:
+                            logger.warning(f"No price data found for symbol: {symbol}")
+                    else:
+                        logger.warning(f"No quote data found for symbol: {symbol}")
+                        
+                except Exception as e:
+                    logger.error(f"Error fetching quote for {symbol}: {str(e)}")
+                    continue  # Skip failed symbol and continue with others
+                    
             return quotes
-            
+                
         except Exception as e:
             logger.error(f"Error in batch quotes: {str(e)}")
             return {}
