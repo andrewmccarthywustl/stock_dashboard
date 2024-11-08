@@ -55,7 +55,7 @@ class Position(BaseModel):
                 raise ValueError("Current price must be a positive decimal")
             if position_type not in self.VALID_POSITION_TYPES:
                 raise ValueError(f"Position type must be one of {self.VALID_POSITION_TYPES}")
-            if not isinstance(beta, (int, float)) or beta < 0 or beta > 5:
+            if not isinstance(beta, (int, float)) or beta < -1 or beta > 5:
                 raise ValueError("Beta must be a number between 0 and 5")
             if not isinstance(entry_date, datetime):
                 raise ValueError("Entry date must be a datetime object")
