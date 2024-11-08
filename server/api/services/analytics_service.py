@@ -17,23 +17,29 @@ class AnalyticsService:
         """Calculate key portfolio metrics"""
         portfolio = self.portfolio_repo.get_default_portfolio()
         
-        # Calculate beta-weighted exposure
+        # Calculate long positions beta exposure
+        long_positions = [p for p in portfolio.positions if p.position_type == "long"]
+        short_positions = [p for p in portfolio.positions if p.position_type == "short"]
+        
+        # Calculate total values
+        total_long_value = sum(p.position_value for p in long_positions)
+        total_short_value = sum(p.position_value for p in short_positions)
+        
+        # Calculate weighted beta exposures
         long_beta_exposure = sum(
-            p.position_value * p.beta 
-            for p in portfolio.positions 
-            if p.position_type == "long"
-        )
+            (p.position_value / total_long_value) * Decimal(str(p.beta))
+            for p in long_positions
+        ) if total_long_value > 0 else Decimal('0')
         
         short_beta_exposure = sum(
-            p.position_value * p.beta 
-            for p in portfolio.positions 
-            if p.position_type == "short"
-        )
+            (p.position_value / total_short_value) * Decimal(str(p.beta))
+            for p in short_positions
+        ) if total_short_value > 0 else Decimal('0')
 
         return {
-            "long_beta_exposure": long_beta_exposure,
-            "short_beta_exposure": short_beta_exposure,
-            "net_beta_exposure": long_beta_exposure - short_beta_exposure,
+            "long_beta_exposure": float(long_beta_exposure),
+            "short_beta_exposure": float(short_beta_exposure),
+            "net_beta_exposure": float(long_beta_exposure - short_beta_exposure),
             "long_short_ratio": portfolio.long_short_ratio,
             "sector_concentration": self._calculate_sector_concentration(portfolio.positions),
             "position_concentration": self._calculate_position_concentration(portfolio.positions)
@@ -59,12 +65,12 @@ class AnalyticsService:
         sharpe_ratio = self._calculate_sharpe_ratio(daily_pnl)
 
         return {
-            "realized_gains": realized_gains,
+            "realized_gains": float(realized_gains),
             "sharpe_ratio": sharpe_ratio,
-            "daily_pnl": daily_pnl,
+            "daily_pnl": {date: float(pnl) for date, pnl in daily_pnl.items()},
             "win_rate": self._calculate_win_rate(transactions),
-            "average_win": self._calculate_average_win(transactions),
-            "average_loss": self._calculate_average_loss(transactions)
+            "average_win": float(self._calculate_average_win(transactions)),
+            "average_loss": float(self._calculate_average_loss(transactions))
         }
 
     def _calculate_sector_concentration(self, positions: List) -> Dict:
@@ -78,11 +84,11 @@ class AnalyticsService:
         for position in positions:
             sector = position.sector
             if sector not in sector_values:
-                sector_values[sector] = 0
+                sector_values[sector] = Decimal('0')
             sector_values[sector] += position.position_value
 
         return {
-            sector: (value / total_value * 100)
+            sector: float(value / total_value * 100)
             for sector, value in sector_values.items()
         }
 
@@ -96,7 +102,7 @@ class AnalyticsService:
             return {}
 
         position_weights = [
-            (p.symbol, p.position_value / total_value * 100)
+            (p.symbol, float(p.position_value / total_value * 100))
             for p in positions
         ]
         
@@ -127,7 +133,7 @@ class AnalyticsService:
         if not daily_pnl:
             return 0.0
 
-        daily_returns = list(daily_pnl.values())
+        daily_returns = [float(pnl) for pnl in daily_pnl.values()]
         
         if not daily_returns:
             return 0.0
@@ -141,7 +147,7 @@ class AnalyticsService:
 
         daily_risk_free = risk_free_rate / 252  # Approximate trading days in a year
         sharpe = (mean_return - daily_risk_free) / std_dev
-        return float(sharpe * (252 ** 0.5))  # Annualize
+        return sharpe * (252 ** 0.5)  # Annualize
 
     def _calculate_win_rate(self, transactions: List) -> float:
         """Calculate win rate from transactions"""

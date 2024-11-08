@@ -80,13 +80,20 @@ class TestAnalyticsService(unittest.TestCase):
         metrics = self.analytics_service.calculate_portfolio_metrics()
 
         # Calculate expected values
+        # Long positions
+        aapl_value = Decimal("100") * Decimal("160")  # 16000
+        msft_value = Decimal("50") * Decimal("220")   # 11000
+        total_long_value = aapl_value + msft_value    # 27000
+
         expected_long_beta = (
-            (Decimal("100") * Decimal("160") * Decimal("1.2") + 
-             Decimal("50") * Decimal("220") * Decimal("1.1")) /
-            (Decimal("100") * Decimal("160") + Decimal("50") * Decimal("220"))
+            (aapl_value / total_long_value) * Decimal("1.2") +
+            (msft_value / total_long_value) * Decimal("1.1")
         )
 
-        expected_short_beta = Decimal("2.5")
+        # Short positions
+        gme_value = Decimal("30") * Decimal("35")
+        total_short_value = gme_value
+        expected_short_beta = Decimal("2.5")  # Only one position
 
         # Test long beta exposure
         self.assertAlmostEqual(
