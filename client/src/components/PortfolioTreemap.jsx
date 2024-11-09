@@ -68,15 +68,15 @@ const PortfolioTreemap = ({ positionType = "long" }) => {
     const p = Number(percentage);
 
     if (isShort) {
-      if (p >= 10) return "#4c1d95";
-      if (p >= 5) return "#5b21b6";
-      if (p >= 2) return "#6d28d9";
-      if (p > 0) return "#7c3aed";
+      if (p >= 10) return "#143C22";
+      if (p >= 5) return "#194227";
+      if (p >= 2) return "#1E4D30";
+      if (p > 0) return "#255D3A";
       if (p === 0) return "#1F2937";
-      if (p >= -2) return "#60a5fa";
-      if (p >= -5) return "#3b82f6";
-      if (p >= -10) return "#2563eb";
-      return "#1e3a8a";
+      if (p >= -2) return "#C44";
+      if (p >= -5) return "#AA3937";
+      if (p >= -10) return "#892E2D";
+      return "#632726";
     } else {
       if (p <= -10) return "#632726";
       if (p <= -5) return "#892E2D";

@@ -4,6 +4,7 @@ import api from "../services/api";
 import PortfolioMetadata from "../components/PortfolioMetadata";
 import PortfolioList from "../components/PortfolioList";
 import UpdatePriceButton from "../components/UpdatePriceButton";
+import LoadingSpinner from "../components/LoadingSpinner";
 
 const Dashboard = () => {
   const [portfolioData, setPortfolioData] = useState({
@@ -37,9 +38,7 @@ const Dashboard = () => {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div>
-      </div>
+      <LoadingSpinner size="large" fullScreen text="Loading portfolio..." />
     );
   }
 
