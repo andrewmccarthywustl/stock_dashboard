@@ -17,6 +17,7 @@ from api.repositories import (
 from api.core.middleware import setup_middleware
 from api.core.logging import setup_logging
 from api.services.stock_providers.alpha_vantage import AlphaVantageProvider
+from api import DATA_DIR  # Import the correct DATA_DIR
 import logging
 import os
 import asyncio
@@ -62,16 +63,13 @@ def create_app(config_name=None):
             if not loop.is_closed():
                 loop.close()
         
-        # Ensure data directories exist
-        os.makedirs(app.config['DATA_DIR'], exist_ok=True)
-        
-        # Initialize repositories
+        # Initialize repositories with correct paths
         portfolio_repo = PortfolioRepository(
-            os.path.join(app.config['DATA_DIR'], 'portfolio.json')
+            os.path.join(DATA_DIR, 'portfolio.json')
         )
         
         transaction_repo = TransactionRepository(
-            os.path.join(app.config['DATA_DIR'], 'transactions.json')
+            os.path.join(DATA_DIR, 'transactions.json')
         )
         
         # Initialize Alpha Vantage provider

@@ -12,13 +12,15 @@ __version__ = '1.0.0'
 __author__ = 'Your Name'
 __description__ = 'Stock Portfolio Dashboard API Server'
 
-# Ensure required directories exist
+# Only define base directories here
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, 'server', 'data')
-LOG_DIR = os.path.join(BASE_DIR, 'server', 'logs')
+# Remove these lines as they should be managed by api package
+# DATA_DIR = os.path.join(BASE_DIR, 'server', 'data')
+# LOG_DIR = os.path.join(BASE_DIR, 'server', 'logs')
 
-os.makedirs(DATA_DIR, exist_ok=True)
-os.makedirs(LOG_DIR, exist_ok=True)
+# Remove directory creation from here
+# os.makedirs(DATA_DIR, exist_ok=True)
+# os.makedirs(LOG_DIR, exist_ok=True)
 
 def create_app(config_name=None):
     """Create and configure the Flask application"""
@@ -34,7 +36,5 @@ __all__ = [
     '__version__',
     '__author__',
     '__description__',
-    'BASE_DIR',
-    'DATA_DIR',
-    'LOG_DIR'
+    'BASE_DIR'
 ]

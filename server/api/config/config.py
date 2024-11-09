@@ -26,10 +26,9 @@ class Config:
     API_TITLE = 'Stock Portfolio API'
     API_DESCRIPTION = 'API for managing stock portfolio and trades'
     
-    # Directory paths
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    DATA_DIR = os.path.join(BASE_DIR, 'data')
-    LOG_DIR = os.path.join(BASE_DIR, 'logs')
+    # Directory paths - use the ones from api package
+    from .. import API_DIR, DATA_DIR, LOG_DIR
+    BASE_DIR = os.path.dirname(os.path.dirname(API_DIR))
     
     # File paths
     PORTFOLIO_FILE = os.path.join(DATA_DIR, 'portfolio.json')
@@ -55,7 +54,7 @@ class Config:
     CACHE_DEFAULT_TIMEOUT = 300  # 5 minutes
     CACHE_REDIS_URL = REDIS_URL
     
-    # Stock data cache timeouts (in seconds)
+    # Cache timeouts (in seconds)
     CACHE_TIMEOUTS = {
         'stock_info': 3600,        # 1 hour
         'batch_quotes': 60,        # 1 minute
@@ -103,11 +102,6 @@ class Config:
     @classmethod
     def init_app(cls, app):
         """Initialize application configuration"""
-        # Ensure required directories exist
-        os.makedirs(cls.DATA_DIR, exist_ok=True)
-        os.makedirs(cls.LOG_DIR, exist_ok=True)
-        
-        # Set Flask config
         app.config.from_object(cls)
         
         # Initialize provider-specific settings

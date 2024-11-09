@@ -20,11 +20,12 @@ __all__ = [
     'portfolio_bp'
 ]
 
-# Package configuration
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_DIR = os.path.join(BASE_DIR, 'config')
-DATA_DIR = os.path.join(os.path.dirname(BASE_DIR), 'data')
-LOG_DIR = os.path.join(os.path.dirname(BASE_DIR), 'logs')
+# Package configuration - define the correct paths
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+API_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_DIR = os.path.join(API_DIR, 'config')
+DATA_DIR = os.path.join(API_DIR, 'data')
+LOG_DIR = os.path.join(API_DIR, 'logs')
 
 # Ensure directories exist
 for directory in [CONFIG_DIR, DATA_DIR, LOG_DIR]:

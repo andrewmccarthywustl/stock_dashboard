@@ -1,5 +1,6 @@
 // src/components/StockDetailsPopup.jsx
 import React from "react";
+import { formatCurrency } from "../utils/formatters";
 
 const StockDetailsPopup = ({ stock, onClose }) => {
   if (!stock) return null;
@@ -50,19 +51,19 @@ const StockDetailsPopup = ({ stock, onClose }) => {
             <div>
               <p className="text-gray-400 text-sm">Position Value</p>
               <p className="text-white text-lg font-medium">
-                ${stock.position_value?.toLocaleString()}
+                {formatCurrency(stock.position_value)}
               </p>
             </div>
             <div>
               <p className="text-gray-400 text-sm">Cost Basis</p>
               <p className="text-white text-lg font-medium">
-                ${stock.cost_basis?.toLocaleString()}
+                {formatCurrency(stock.cost_basis)}
               </p>
             </div>
             <div>
               <p className="text-gray-400 text-sm">Current Price</p>
               <p className="text-white text-lg font-medium">
-                ${stock.current_price?.toLocaleString()}
+                {formatCurrency(stock.current_price)}
               </p>
             </div>
             <div>

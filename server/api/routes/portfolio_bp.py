@@ -26,35 +26,19 @@ async def get_portfolio():
         # Get raw portfolio data first
         portfolio = portfolio_bp.portfolio_service.get_portfolio_summary()
         
-        # If there are positions, update their prices
-        if portfolio.get('positions'):
-            symbols = [p['symbol'] for p in portfolio['positions']]
-            stock_service = portfolio_bp.portfolio_service.stock_service
-            
-            # Get updated prices
-            try:
-                prices = await stock_service.get_batch_quotes(symbols)
-                
-                # Update prices in portfolio data
-                for position in portfolio['positions']:
-                    symbol = position['symbol']
-                    if symbol in prices:
-                        position['current_price'] = str(prices[symbol])
-                        # Recalculate position value and gains
-                        quantity = Decimal(position['quantity'])
-                        position['position_value'] = str(prices[symbol] * quantity)
-                        cost_basis = Decimal(position['cost_basis'])
-                        position['running_total_gains'] = str((prices[symbol] - cost_basis) * quantity)
-                
-                # Update last_updated timestamp
-                portfolio['metadata']['last_updated'] = datetime.now().isoformat()
-                
-            except Exception as e:
-                logger.error(f"Error updating prices: {str(e)}")
-                # Continue with existing prices if update fails
-                pass
+        # Get analytics metrics
+        analytics = portfolio_bp.analytics_service.calculate_portfolio_metrics()
         
-        logger.info(f"Portfolio data retrieved: {portfolio}")
+        # Add analytics to metadata
+        portfolio['metadata'].update({
+            'long_beta_exposure': analytics['long_beta_exposure'],
+            'short_beta_exposure': analytics['short_beta_exposure'],
+            'long_short_ratio': analytics['long_short_ratio']
+        })
+        
+        logger.info(f"Analytics metrics: {analytics}")
+        logger.info(f"Portfolio metadata after update: {portfolio['metadata']}")
+        
         return jsonify(portfolio), 200
     except Exception as e:
         logger.error(f"Error getting portfolio: {str(e)}")
@@ -211,9 +195,39 @@ async def get_transactions():
         if end_date:
             filters['end_date'] = datetime.fromisoformat(end_date)
             
+        # Get transactions with their total values calculated
         transactions = portfolio_bp.portfolio_service.get_position_history(**filters)
-        return jsonify(transactions), 200
+        
+        # Calculate summary stats
+        total_value = sum(Decimal(str(t.get('total_value', 0))) for t in transactions)
+        realized_gains = sum(
+            Decimal(str(t.get('realized_gain', 0))) 
+            for t in transactions 
+            if t.get('realized_gain') is not None
+        )
+        
+        summary = {
+            'total_value': str(total_value),
+            'realized_gains': str(realized_gains),
+            'total_transactions': len(transactions),
+            'last_updated': datetime.now().isoformat(),
+            'transaction_counts': {
+                'buy': len([t for t in transactions if t.get('transaction_type') == 'buy']),
+                'sell': len([t for t in transactions if t.get('transaction_type') == 'sell']),
+                'short': len([t for t in transactions if t.get('transaction_type') == 'short']),
+                'cover': len([t for t in transactions if t.get('transaction_type') == 'cover'])
+            }
+        }
+        
+        logger.info(f"Transaction summary calculated: {summary}")
+        
+        return jsonify({
+            'transactions': transactions,
+            'summary': summary
+        }), 200
+        
     except Exception as e:
+        logger.error(f"Error getting transactions: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @portfolio_bp.route('/sector-exposure', methods=['GET'])

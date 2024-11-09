@@ -21,7 +21,6 @@ const TransactionHistory = () => {
 
   const [error, setError] = useState(null);
   const [summary, setSummary] = useState({
-    total_value: 0,
     realized_gains: 0,
     total_transactions: 0,
     last_updated: new Date().toISOString(),
@@ -51,7 +50,6 @@ const TransactionHistory = () => {
         const response = await fetchTransactions(validFilters);
         setSummary(
           response.summary || {
-            total_value: 0,
             realized_gains: 0,
             total_transactions: 0,
             last_updated: new Date().toISOString(),
@@ -75,18 +73,6 @@ const TransactionHistory = () => {
     }));
   };
 
-  const handleRefresh = async () => {
-    try {
-      logInfo("Manually refreshing transactions");
-      const response = await fetchTransactions(filters);
-      setSummary(response.summary);
-      setError(null);
-    } catch (err) {
-      logError("Error refreshing transactions:", err);
-      setError(err.message || "Failed to refresh transactions");
-    }
-  };
-
   const getTransactionTypeColor = (transactionType) => {
     if (!transactionType) return "bg-gray-100 text-gray-800";
 
@@ -108,18 +94,14 @@ const TransactionHistory = () => {
     if (!summary) return null;
 
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white rounded-lg shadow p-4">
-          <h3 className="text-sm font-medium text-gray-500">Total Value</h3>
-          <p className="mt-1 text-lg font-semibold text-gray-900">
-            {formatCurrency(summary.total_value)}
-          </p>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div className="bg-white rounded-lg shadow p-4">
           <h3 className="text-sm font-medium text-gray-500">Realized Gains</h3>
           <p
             className={`mt-1 text-lg font-semibold ${
-              summary.realized_gains >= 0 ? "text-green-600" : "text-red-600"
+              Number(summary.realized_gains) >= 0
+                ? "text-green-600"
+                : "text-red-600"
             }`}
           >
             {formatCurrency(summary.realized_gains)}
@@ -133,12 +115,6 @@ const TransactionHistory = () => {
             {summary.total_transactions}
           </p>
         </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <h3 className="text-sm font-medium text-gray-500">Last Updated</h3>
-          <p className="mt-1 text-lg font-semibold text-gray-900">
-            {formatDate(summary.last_updated)}
-          </p>
-        </div>
       </div>
     );
   };
@@ -147,12 +123,6 @@ const TransactionHistory = () => {
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Transaction History</h1>
-        <button
-          onClick={handleRefresh}
-          className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        >
-          Refresh
-        </button>
       </div>
 
       {renderSummary()}
@@ -344,7 +314,7 @@ const TransactionHistory = () => {
                       {transaction.realized_gain !== null ? (
                         <span
                           className={
-                            transaction.realized_gain >= 0
+                            Number(transaction.realized_gain) >= 0
                               ? "text-green-600"
                               : "text-red-600"
                           }

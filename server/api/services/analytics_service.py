@@ -2,7 +2,10 @@
 from decimal import Decimal
 from typing import Dict, List
 from datetime import datetime, timedelta
+import logging
 from ..repositories import PortfolioRepository, TransactionRepository
+
+logger = logging.getLogger(__name__)
 
 class AnalyticsService:
     def __init__(
@@ -13,169 +16,121 @@ class AnalyticsService:
         self.portfolio_repo = portfolio_repository
         self.transaction_repo = transaction_repository
 
+    # server/api/services/analytics_service.py
     def calculate_portfolio_metrics(self) -> Dict:
         """Calculate key portfolio metrics"""
-        portfolio = self.portfolio_repo.get_default_portfolio()
-        
-        # Calculate long positions beta exposure
-        long_positions = [p for p in portfolio.positions if p.position_type == "long"]
-        short_positions = [p for p in portfolio.positions if p.position_type == "short"]
-        
-        # Calculate total values
-        total_long_value = sum(p.position_value for p in long_positions)
-        total_short_value = sum(p.position_value for p in short_positions)
-        
-        # Calculate weighted beta exposures
-        long_beta_exposure = sum(
-            (p.position_value / total_long_value) * Decimal(str(p.beta))
-            for p in long_positions
-        ) if total_long_value > 0 else Decimal('0')
-        
-        short_beta_exposure = sum(
-            (p.position_value / total_short_value) * Decimal(str(p.beta))
-            for p in short_positions
-        ) if total_short_value > 0 else Decimal('0')
-
-        return {
-            "long_beta_exposure": float(long_beta_exposure),
-            "short_beta_exposure": float(short_beta_exposure),
-            "net_beta_exposure": float(long_beta_exposure - short_beta_exposure),
-            "long_short_ratio": portfolio.long_short_ratio,
-            "sector_concentration": self._calculate_sector_concentration(portfolio.positions),
-            "position_concentration": self._calculate_position_concentration(portfolio.positions)
-        }
-
-    def calculate_performance_metrics(
-        self,
-        start_date: datetime,
-        end_date: datetime
-    ) -> Dict:
-        """Calculate performance metrics for a date range"""
-        transactions = self.transaction_repo.get_by_date_range(start_date, end_date)
-        
-        realized_gains = sum(
-            t.realized_gain for t in transactions 
-            if t.realized_gain is not None
-        )
-        
-        # Calculate daily P&L
-        daily_pnl = self._calculate_daily_pnl(transactions)
-        
-        # Calculate Sharpe ratio using daily P&L
-        sharpe_ratio = self._calculate_sharpe_ratio(daily_pnl)
-
-        return {
-            "realized_gains": float(realized_gains),
-            "sharpe_ratio": sharpe_ratio,
-            "daily_pnl": {date: float(pnl) for date, pnl in daily_pnl.items()},
-            "win_rate": self._calculate_win_rate(transactions),
-            "average_win": float(self._calculate_average_win(transactions)),
-            "average_loss": float(self._calculate_average_loss(transactions))
-        }
+        try:
+            portfolio = self.portfolio_repo.get_default_portfolio()
+            
+            # Calculate long positions metrics
+            long_positions = [p for p in portfolio.positions if p.position_type == "long"]
+            short_positions = [p for p in portfolio.positions if p.position_type == "short"]
+            
+            # Calculate total values using Decimal
+            total_long_value = sum(p.position_value for p in long_positions)
+            total_short_value = sum(p.position_value for p in short_positions)
+            
+            # Calculate beta exposures
+            long_beta_exposure = Decimal('0')
+            short_beta_exposure = Decimal('0')
+            
+            # Calculate weighted long beta
+            if total_long_value > 0:
+                long_beta_exposure = sum(
+                    (p.position_value / total_long_value) * Decimal(str(p.beta))
+                    for p in long_positions
+                )
+                
+            # Calculate weighted short beta
+            if total_short_value > 0:
+                short_beta_exposure = sum(
+                    (p.position_value / total_short_value) * Decimal(str(p.beta))
+                    for p in short_positions
+                )
+                
+            # Calculate long/short ratio
+            long_short_ratio = None
+            if total_short_value > Decimal('0'):
+                long_short_ratio = float(total_long_value / total_short_value)
+            elif total_long_value > Decimal('0'):
+                long_short_ratio = float('inf')  # Only long positions
+            else:
+                long_short_ratio = 0.0  # No positions
+            
+            # Log the calculated values for debugging
+            logger.info(f"Portfolio Analytics Calculation:")
+            logger.info(f"Long Positions: {len(long_positions)}")
+            logger.info(f"Short Positions: {len(short_positions)}")
+            logger.info(f"Total Long Value: {total_long_value}")
+            logger.info(f"Total Short Value: {total_short_value}")
+            logger.info(f"Long Beta Exposure: {long_beta_exposure}")
+            logger.info(f"Short Beta Exposure: {short_beta_exposure}")
+            logger.info(f"Long/Short Ratio: {long_short_ratio}")
+            
+            return {
+                "long_beta_exposure": float(round(long_beta_exposure, 2)),
+                "short_beta_exposure": float(round(short_beta_exposure, 2)),
+                "long_short_ratio": (
+                    round(long_short_ratio, 2)
+                    if long_short_ratio is not None and long_short_ratio != float('inf')
+                    else 'N/A'
+                ),
+                "sector_concentration": self._calculate_sector_concentration(portfolio.positions),
+                "position_concentration": self._calculate_position_concentration(portfolio.positions)
+            }
+        except Exception as e:
+            logger.error(f"Error calculating portfolio metrics: {str(e)}")
+            logger.exception("Full traceback:")
+            return {
+                "long_beta_exposure": 0.0,
+                "short_beta_exposure": 0.0,
+                "long_short_ratio": "N/A",
+                "sector_concentration": {},
+                "position_concentration": {}
+            }
 
     def _calculate_sector_concentration(self, positions: List) -> Dict:
         """Calculate sector concentration metrics"""
-        sector_values = {}
-        total_value = sum(p.position_value for p in positions)
-        
-        if total_value == 0:
+        try:
+            sector_values = {}
+            total_value = sum(p.position_value for p in positions)
+            
+            if total_value == 0:
+                return {}
+
+            for position in positions:
+                sector = position.sector
+                if sector not in sector_values:
+                    sector_values[sector] = Decimal('0')
+                sector_values[sector] += position.position_value
+
+            return {
+                sector: float(round((value / total_value * 100), 2))
+                for sector, value in sector_values.items()
+            }
+        except Exception as e:
+            logger.error(f"Error calculating sector concentration: {str(e)}")
             return {}
-
-        for position in positions:
-            sector = position.sector
-            if sector not in sector_values:
-                sector_values[sector] = Decimal('0')
-            sector_values[sector] += position.position_value
-
-        return {
-            sector: float(value / total_value * 100)
-            for sector, value in sector_values.items()
-        }
 
     def _calculate_position_concentration(self, positions: List) -> Dict:
         """Calculate position concentration metrics"""
-        if not positions:
+        try:
+            if not positions:
+                return {}
+
+            total_value = sum(p.position_value for p in positions)
+            if total_value == 0:
+                return {}
+
+            position_weights = [
+                (p.symbol, float(round((p.position_value / total_value * 100), 2)))
+                for p in positions
+            ]
+            
+            return {
+                "largest_position": max(position_weights, key=lambda x: x[1]),
+                "top_5_positions": sorted(position_weights, key=lambda x: x[1], reverse=True)[:5]
+            }
+        except Exception as e:
+            logger.error(f"Error calculating position concentration: {str(e)}")
             return {}
-
-        total_value = sum(p.position_value for p in positions)
-        if total_value == 0:
-            return {}
-
-        position_weights = [
-            (p.symbol, float(p.position_value / total_value * 100))
-            for p in positions
-        ]
-        
-        return {
-            "largest_position": max(position_weights, key=lambda x: x[1]),
-            "top_5_positions": sorted(position_weights, key=lambda x: x[1], reverse=True)[:5]
-        }
-
-    def _calculate_daily_pnl(self, transactions: List) -> Dict[datetime, Decimal]:
-        """Calculate daily profit/loss"""
-        daily_pnl = {}
-        
-        for transaction in transactions:
-            date = transaction.date.date()
-            if date not in daily_pnl:
-                daily_pnl[date] = Decimal('0')
-            if transaction.realized_gain:
-                daily_pnl[date] += transaction.realized_gain
-
-        return daily_pnl
-
-    def _calculate_sharpe_ratio(
-        self,
-        daily_pnl: Dict[datetime, Decimal],
-        risk_free_rate: float = 0.02
-    ) -> float:
-        """Calculate Sharpe ratio using daily P&L"""
-        if not daily_pnl:
-            return 0.0
-
-        daily_returns = [float(pnl) for pnl in daily_pnl.values()]
-        
-        if not daily_returns:
-            return 0.0
-
-        import statistics
-        mean_return = statistics.mean(daily_returns)
-        std_dev = statistics.stdev(daily_returns) if len(daily_returns) > 1 else 0
-        
-        if std_dev == 0:
-            return 0.0
-
-        daily_risk_free = risk_free_rate / 252  # Approximate trading days in a year
-        sharpe = (mean_return - daily_risk_free) / std_dev
-        return sharpe * (252 ** 0.5)  # Annualize
-
-    def _calculate_win_rate(self, transactions: List) -> float:
-        """Calculate win rate from transactions"""
-        winning_trades = sum(
-            1 for t in transactions 
-            if t.realized_gain and t.realized_gain > 0
-        )
-        total_trades = sum(
-            1 for t in transactions 
-            if t.realized_gain is not None
-        )
-        
-        return winning_trades / total_trades if total_trades > 0 else 0.0
-
-    def _calculate_average_win(self, transactions: List) -> Decimal:
-        """Calculate average winning trade size"""
-        winning_trades = [
-            t.realized_gain for t in transactions 
-            if t.realized_gain and t.realized_gain > 0
-        ]
-        
-        return sum(winning_trades) / len(winning_trades) if winning_trades else Decimal('0')
-
-    def _calculate_average_loss(self, transactions: List) -> Decimal:
-        """Calculate average losing trade size"""
-        losing_trades = [
-            t.realized_gain for t in transactions 
-            if t.realized_gain and t.realized_gain < 0
-        ]
-        
-        return sum(losing_trades) / len(losing_trades) if losing_trades else Decimal('0')
