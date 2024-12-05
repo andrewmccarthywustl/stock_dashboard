@@ -1,4 +1,5 @@
 # server/api/config/config.py
+#This is the configuration file for the root level of the api, it sets all immutables and other econfigurations necessary for the backend to fxn
 import os
 from datetime import timedelta
 from typing import Dict, Any

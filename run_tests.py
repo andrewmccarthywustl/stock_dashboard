@@ -1,4 +1,5 @@
 # run_tests.py
+# run this file to run all of the tests in the repo
 import unittest
 import sys
 import os
