@@ -1,4 +1,5 @@
 # api/models/__init__.py
+#TODO ADD MORE LOGGING
 from decimal import Decimal
 from datetime import datetime
 
