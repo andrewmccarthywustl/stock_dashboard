@@ -1,4 +1,5 @@
 # server/__init__.py
+#This is the intialization for the server
 """
 Stock Portfolio Dashboard Server
 """

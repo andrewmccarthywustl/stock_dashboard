@@ -1,6 +1,7 @@
 # server/app.py
+#this is the main backend file, run this to boot the backend up
 from flask import Flask
-from flask_cors import CORS
+from flask_cors import CORSs
 from flask_compress import Compress
 from api.routes.portfolio_bp import portfolio_bp
 from api.config.config import get_config

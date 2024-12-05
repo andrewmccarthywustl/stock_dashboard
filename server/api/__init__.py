@@ -1,4 +1,5 @@
 # server/api/__init__.py
+# This is the initalization for the api
 """
 API Package for Stock Portfolio Dashboard
 """
