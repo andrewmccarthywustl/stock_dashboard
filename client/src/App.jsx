@@ -1,4 +1,5 @@
 // src/App.jsx
+//This is my main app code
 import React, { Suspense } from "react";
 import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
 import { TransactionProvider } from "./contexts/TransactionContext";
